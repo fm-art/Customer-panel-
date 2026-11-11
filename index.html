@@ -399,7 +399,7 @@
       color: #111;
     }
 
-    /* Signature Green ADD Button & Counter */
+    /* ADD Button & Counter */
     .qc-add-btn {
       background: #ffffff;
       border: 1.5px solid var(--brand-green);
@@ -475,7 +475,7 @@
       object-fit: cover;
     }
 
-    /* FLOATING CART BAR: Z-INDEX 700 (ALWAYS VISIBLE OVER HOME & LOCAL STORE MODAL) */
+    /* FLOATING CART BAR */
     #cart-floating-bar {
       position: fixed;
       bottom: calc(var(--bottom-nav-height) + 10px);
@@ -512,7 +512,7 @@
       inset: 0;
       background: rgba(0,0,0,0.7);
       backdrop-filter: blur(5px);
-      z-index: 800; /* Higher than floating cart (700) and menu modal (600) */
+      z-index: 800;
       display: none;
       align-items: flex-end;
       justify-content: center;
@@ -643,6 +643,75 @@
       border-radius: 18px;
       padding: 1rem;
       margin-bottom: 1rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    /* Live Visual 4-Step Stepper (Blinkit Style) */
+    .order-stepper {
+      display: flex;
+      justify-content: space-between;
+      position: relative;
+      margin: 1.15rem 0 1rem;
+      padding: 0 4px;
+    }
+
+    .order-stepper::before {
+      content: '';
+      position: absolute;
+      top: 13px;
+      left: 15px;
+      right: 15px;
+      height: 3px;
+      background: #e2e8f0;
+      z-index: 1;
+    }
+
+    .stepper-progress-fill {
+      position: absolute;
+      top: 13px;
+      left: 15px;
+      height: 3px;
+      background: var(--brand-green);
+      z-index: 2;
+      transition: width 0.35s ease;
+    }
+
+    .step-node {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-size: 0.65rem;
+      font-weight: 800;
+      color: #94a3b8;
+    }
+
+    .step-circle {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 2px solid #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      margin-bottom: 4px;
+      color: #64748b;
+      transition: all 0.25s;
+    }
+
+    .step-node.active .step-circle {
+      background: var(--brand-green);
+      border-color: var(--brand-green);
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(12, 131, 31, 0.35);
+    }
+
+    .step-node.active {
+      color: var(--brand-green);
+      font-weight: 900;
     }
 
     .otp-security-badge {
@@ -880,7 +949,7 @@
       </div>
     </div>
 
-    <!-- TAB 2: MY ORDERS & LIVE OTP -->
+    <!-- TAB 2: MY ORDERS, LIVE TRACKER & PIN -->
     <div id="tab-orders" class="tab-content">
       <div style="font-size: 1.1rem; font-weight: 900; margin-bottom: 0.85rem;">Live Orders & Delivery PIN</div>
       <div id="orders-container">
@@ -926,7 +995,7 @@
       </button>
     </div>
 
-    <!-- FLOATING CART STRIP: Z-INDEX 700 (ALWAYS VISIBLE IN BOTH HOME & LOCAL STORE MODAL) -->
+    <!-- FLOATING CART STRIP -->
     <div id="cart-floating-bar" onclick="openCheckoutModal()">
       <div style="display: flex; align-items: center; gap: 8px;">
         <span style="font-size: 1.3rem;">🛍️</span>
@@ -957,7 +1026,7 @@
       </button>
     </nav>
 
-    <!-- STORE PRODUCTS CATALOG MODAL (Z-INDEX 600, PADDED SO FLOATING CART BAR DOES NOT OVERLAP) -->
+    <!-- STORE PRODUCTS CATALOG MODAL -->
     <div id="menu-modal">
       <div class="checkout-sheet" style="max-height: 94vh; padding-bottom: 100px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
@@ -967,12 +1036,11 @@
           </div>
           <i class="fa-solid fa-xmark" onclick="closeMenuModal()" style="font-size: 1.4rem; cursor: pointer; color:#64748b;"></i>
         </div>
-        <!-- In-Store Dynamic Product Grid -->
         <div class="product-grid-2col" id="store-products-container"></div>
       </div>
     </div>
 
-    <!-- MULTI-STORE UNIFIED BASKET & CHECKOUT MODAL (Z-INDEX 800) -->
+    <!-- MULTI-STORE UNIFIED BASKET & CHECKOUT MODAL -->
     <div id="checkout-modal">
       <div class="checkout-sheet">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem;">
@@ -993,7 +1061,7 @@
           </div>
         </div>
 
-        <!-- Multi-Store Items List (Grouped by Store) -->
+        <!-- Multi-Store Items List -->
         <div id="checkout-items-list" style="max-height: 220px; overflow-y: auto; margin-bottom: 0.85rem;"></div>
 
         <!-- Promo Coupon Code Input -->
@@ -1111,7 +1179,7 @@
     const db = firebase.database();
 
     // ==========================================
-    // 2. STATE & CONFIG (MULTI-STORE ENABLED)
+    // 2. STATE & CONFIG
     // ==========================================
     let currentUser = null;
     let customerProfile = null;
@@ -1142,7 +1210,6 @@
       return /^[6-9]\d{9}$/.test(cleaned);
     }
 
-    // MULTI-STORE CART STORAGE: Holds items from any store together!
     let cart = JSON.parse(localStorage.getItem('gb_ultra_cart')) || {
       items: []
     };
@@ -1158,6 +1225,18 @@
       t.innerHTML = `<span>${msg}</span>`;
       c.appendChild(t);
       setTimeout(() => t.remove(), 3500);
+    }
+
+    function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+      if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+      const R = 6371;
+      const dLat = (lat2 - lat1) * (Math.PI / 180);
+      const dLon = (lon2 - lon1) * (Math.PI / 180);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
     // ==========================================
@@ -1422,11 +1501,9 @@
       return found ? found.qty : 0;
     }
 
-    // UNIFIED ADD CONTROLLER: Seamlessly supports items from any store!
     function updateCartQty(itemId, change, name, price, imageUrl, storeId, storeName) {
       if (!Array.isArray(cart.items)) cart.items = [];
 
-      // Find item matching both item ID and Store ID
       const idx = cart.items.findIndex(i => String(i.itemId) === String(itemId) && String(i.storeId) === String(storeId));
 
       if (idx > -1) {
@@ -1449,7 +1526,6 @@
       saveCartToLocal();
       updateCartBar();
 
-      // Refresh both Home and Store Catalog views immediately!
       renderInstantProducts();
       if (currentStoreId && document.getElementById('menu-modal').style.display === 'flex') {
         renderStoreProductsModal();
@@ -1481,7 +1557,6 @@
       }
     }
 
-    // FLOATING CART PILL (Appears on Home AND inside Local Store Modal)
     function updateCartBar() {
       const bar = document.getElementById('cart-floating-bar');
       if (!cart || !Array.isArray(cart.items)) {
@@ -1495,7 +1570,7 @@
       if (totalCount > 0) {
         document.getElementById('floating-cart-count').textContent = `${totalCount} ITEM${totalCount > 1 ? 'S' : ''}`;
         document.getElementById('floating-cart-total').textContent = `₹${subtotal.toFixed(0)}`;
-        bar.style.display = 'flex'; // Visible on home and local store
+        bar.style.display = 'flex';
       } else {
         bar.style.display = 'none';
       }
@@ -1562,7 +1637,7 @@
     }
 
     // ==========================================
-    // 8. STORE CATALOG MODAL & DYNAMIC RE-RENDER
+    // 8. STORE CATALOG MODAL
     // ==========================================
     function filterCategory(cat, el) {
       currentCategoryFilter = cat;
@@ -1613,7 +1688,7 @@
       window.history.pushState({ modal: 'menu' }, '');
 
       renderStoreProductsModal();
-      updateCartBar(); // Ensure cart bar displays inside store modal!
+      updateCartBar();
     }
 
     function renderStoreProductsModal() {
@@ -1676,7 +1751,6 @@
       window.history.pushState({ modal: 'checkout' }, '');
     }
 
-    // Renders items grouped by their respective Stores
     function renderCheckoutTotals() {
       const listContainer = document.getElementById('checkout-items-list');
       listContainer.innerHTML = '';
@@ -1689,7 +1763,6 @@
       let subtotal = 0;
       const defaultImg = "https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=60";
 
-      // Group items by storeId
       const groupedByStore = {};
       cart.items.forEach(item => {
         const sId = item.storeId || 'general';
@@ -1811,18 +1884,6 @@
 
     function closeCheckoutModal() { document.getElementById('checkout-modal').style.display = 'none'; }
 
-    function calculateDistanceKm(lat1, lon1, lat2, lon2) {
-      if (!lat1 || !lon1 || !lat2 || !lon2) return Infinity;
-      const R = 6371;
-      const dLat = (lat2 - lat1) * (Math.PI / 180);
-      const dLon = (lon2 - lon1) * (Math.PI / 180);
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-    }
-
     function findNearestAvailableRider(storeLat, storeLng) {
       let nearestRiderUid = null;
       let minDistance = Infinity;
@@ -1836,7 +1897,7 @@
       onlineApprovedRiders.forEach(([uid, rider]) => {
         if (rider.lat && rider.lng) {
           const dist = calculateDistanceKm(storeLat, storeLng, rider.lat, rider.lng);
-          if (dist < minDistance) {
+          if (dist !== null && dist < minDistance) {
             minDistance = dist;
             nearestRiderUid = uid;
           }
@@ -1848,7 +1909,6 @@
       return nearestRiderUid;
     }
 
-    // MULTI-STORE BATCH ORDER PLACEMENT
     function placeOrder() {
       const address = sanitizeText(document.getElementById('checkout-address').value.trim());
       const phone = document.getElementById('checkout-phone').value.trim();
@@ -1857,7 +1917,6 @@
       if (address.length < 6) { showToast('Enter proper address!', 'danger'); return; }
       if (!isValidIndianMobile(phone)) { showToast('Enter valid 10-digit phone!', 'danger'); return; }
 
-      // Group cart items by storeId so each store owner receives their orders cleanly in resturant.html!
       const storeBatches = {};
       let totalItemsSubtotal = 0;
 
@@ -1891,7 +1950,6 @@
         const storeLng = currentStore.lng || 89.9723;
         const assignedRiderUid = findNearestAvailableRider(storeLat, storeLng);
 
-        // Apply delivery charge only to first store batch if not free delivery
         const batchDeliveryCharge = isFreeDelivery ? 0 : (isFirstStore ? baseDeliveryCharge : 0);
         isFirstStore = false;
 
@@ -1939,7 +1997,7 @@
     }
 
     // ==========================================
-    // 10. ORDERS & LIVE RIDER APPROACH
+    // 10. ORDERS, STEPPER TRACKER & RIDER RE-DISPATCH VISIBILITY
     // ==========================================
     let cachedOrders = {};
 
@@ -1960,6 +2018,108 @@
         const rawItems = Array.isArray(o.items) ? o.items : Object.values(o.items || {});
         const itemsSummary = rawItems.map(i => `${escapeHtml(i.name)} × ${i.qty}`).join(', ');
 
+        const status = o.status || 'PLACED';
+        const isCancelled = status === 'CANCELLED';
+        const isDelivered = status === 'DELIVERED';
+
+        // Dynamic Progress Stepper Calculation
+        let stepProgressWidth = '12%';
+        let step1Active = true;
+        let step2Active = false;
+        let step3Active = false;
+        let step4Active = false;
+
+        if (status === 'ACCEPTED' || status === 'PREPARING' || status === 'PACKING') {
+          stepProgressWidth = '40%';
+          step2Active = true;
+        } else if (status === 'READY_FOR_PICKUP' || status === 'PICKED_UP' || status === 'OUT_FOR_DELIVERY') {
+          stepProgressWidth = '70%';
+          step2Active = true;
+          step3Active = true;
+        } else if (isDelivered) {
+          stepProgressWidth = '100%';
+          step2Active = true;
+          step3Active = true;
+          step4Active = true;
+        }
+
+        // Stepper HTML
+        let stepperHtml = '';
+        if (!isCancelled) {
+          stepperHtml = `
+            <div class="order-stepper">
+              <div class="stepper-progress-fill" style="width: ${stepProgressWidth};"></div>
+              <div class="step-node ${step1Active ? 'active' : ''}">
+                <div class="step-circle"><i class="fa-solid fa-receipt"></i></div>
+                <span>Placed</span>
+              </div>
+              <div class="step-node ${step2Active ? 'active' : ''}">
+                <div class="step-circle"><i class="fa-solid fa-box-open"></i></div>
+                <span>Packing</span>
+              </div>
+              <div class="step-node ${step3Active ? 'active' : ''}">
+                <div class="step-circle"><i class="fa-solid fa-motorcycle"></i></div>
+                <span>On the way</span>
+              </div>
+              <div class="step-node ${step4Active ? 'active' : ''}">
+                <div class="step-circle"><i class="fa-solid fa-house-chimney"></i></div>
+                <span>Delivered</span>
+              </div>
+            </div>
+          `;
+        } else {
+          stepperHtml = `
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 0.7rem 0.9rem; margin: 0.75rem 0; color: var(--danger); font-size: 0.82rem; font-weight: 700;">
+              <i class="fa-solid fa-ban"></i> Order Cancelled (${escapeHtml(o.cancelledBy || 'USER')})
+              ${o.cancelReason ? `<div style="font-size: 0.74rem; color: #991b1b; margin-top: 2px;">Reason: ${escapeHtml(o.cancelReason)}</div>` : ''}
+            </div>
+          `;
+        }
+
+        // Rider Reassignment & Moving Approach UI
+        let riderSectionHtml = '';
+        if (!isCancelled && !isDelivered) {
+          if (rider) {
+            const riderDist = (o.riderLat && o.customerLat) ? calculateDistanceKm(o.riderLat, o.riderLng, o.customerLat, o.customerLng) : null;
+            riderSectionHtml = `
+              <div class="delivery-boy-box">
+                <div>
+                  <strong style="font-size:0.85rem;"><i class="fa-solid fa-motorcycle" style="color:var(--brand-green);"></i> ${escapeHtml(rider.name || 'Delivery Partner')}</strong>
+                  <div style="font-size:0.72rem; color:#64748b;">
+                    Vehicle: ${escapeHtml(rider.vehicle || 'Bike')} 
+                    ${riderDist !== null ? `• <span style="color:var(--brand-green); font-weight:800;">~${riderDist.toFixed(1)} km away</span>` : ''}
+                  </div>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  ${rider.phone ? `<a href="tel:${rider.phone}" class="btn btn-outline btn-sm" style="color:var(--brand-green); text-decoration:none;"><i class="fa-solid fa-phone"></i> Call</a>` : ''}
+                  ${o.riderLat ? `<a href="https://www.google.com/maps?q=${o.riderLat},${o.riderLng}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;"><i class="fa-solid fa-location-arrow"></i> Map</a>` : ''}
+                </div>
+              </div>
+            `;
+          } else {
+            // Anti-Panic feedback when order is passed / re-assigning
+            riderSectionHtml = `
+              <div style="background: #f0fdf4; border: 1.5px dashed var(--brand-green); border-radius: 12px; padding: 0.75rem 0.9rem; margin: 0.65rem 0; display: flex; align-items: center; gap: 10px;">
+                <i class="fa-solid fa-satellite-dish fa-spin" style="color: var(--brand-green); font-size: 1.25rem;"></i>
+                <div style="font-size: 0.76rem; color: #166534; font-weight: 800;">
+                  Connecting to the nearest delivery partner in your area...
+                  <div style="font-size: 0.68rem; color: #64748b; font-weight: 600; margin-top: 1px;">Your grocery is safe & being prepared!</div>
+                </div>
+              </div>
+            `;
+          }
+        }
+
+        // Road Emergency Notice
+        let emergencyAlertHtml = '';
+        if (o.emergencyAlert) {
+          emergencyAlertHtml = `
+            <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 0.65rem 0.85rem; margin-bottom: 0.5rem; font-size: 0.75rem; color: #92400e; font-weight: 700;">
+              <i class="fa-solid fa-triangle-exclamation" style="color: #d97706;"></i> Temporary delay: Delivery vehicle issue reported. Our local support is resolving it!
+            </div>
+          `;
+        }
+
         container.innerHTML += `
           <div class="order-card">
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed var(--border); padding-bottom:0.5rem; margin-bottom:0.5rem;">
@@ -1968,12 +2128,15 @@
                 <div style="font-size:0.72rem; color:#64748b;">${new Date(o.createdAt).toLocaleTimeString()}</div>
               </div>
               <span style="font-size:0.72rem; font-weight:900; background:var(--brand-green-light); color:var(--brand-green); padding:3px 8px; border-radius:10px;">
-                ${o.status}
+                ${status}
               </span>
             </div>
 
+            ${stepperHtml}
+            ${emergencyAlertHtml}
+
             <!-- Secret Delivery PIN -->
-            ${o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.deliveryOtp ? `
+            ${!isDelivered && !isCancelled && o.deliveryOtp ? `
               <div class="otp-security-badge">
                 <div>
                   <div style="font-size:0.68rem; text-transform:uppercase; font-weight:800; color:#38bdf8;">🔐 Doorstep Delivery PIN</div>
@@ -1989,21 +2152,9 @@
               <span style="color:var(--brand-green);">₹${Number(o.totalAmount || 0).toFixed(0)}</span>
             </div>
 
-            <!-- Rider Live Approach Card -->
-            ${rider && o.status !== 'CANCELLED' ? `
-              <div class="delivery-boy-box">
-                <div>
-                  <strong style="font-size:0.82rem;"><i class="fa-solid fa-motorcycle" style="color:var(--brand-green);"></i> ${escapeHtml(rider.name || 'Delivery Partner')}</strong>
-                  <div style="font-size:0.72rem; color:#64748b;">Vehicle: ${escapeHtml(rider.vehicle || 'Bike')}</div>
-                </div>
-                <div style="display:flex; gap:6px;">
-                  ${rider.phone ? `<a href="tel:${rider.phone}" class="btn btn-outline btn-sm" style="color:var(--brand-green); text-decoration:none;"><i class="fa-solid fa-phone"></i></a>` : ''}
-                  ${rider.lat ? `<a href="https://www.google.com/maps?q=${rider.lat},${rider.lng}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;"><i class="fa-solid fa-location-arrow"></i> Map</a>` : ''}
-                </div>
-              </div>
-            ` : ''}
+            ${riderSectionHtml}
 
-            ${(o.status === 'PLACED' || o.status === 'ACCEPTED') ? `
+            ${(status === 'PLACED' || status === 'ACCEPTED') ? `
               <button class="btn btn-outline btn-sm" style="color:var(--danger); border-color:#fecaca; margin-top:6px;" onclick="openCancelOrderModal('${orderId}')">
                 Cancel Order
               </button>
