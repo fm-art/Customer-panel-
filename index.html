@@ -226,7 +226,7 @@
       animation: pulse 1s infinite;
     }
 
-    /* UPGRADED CATEGORY STRIP */
+    /* DYNAMIC CATEGORY STRIP */
     .categories-circular-strip {
       display: flex;
       gap: 12px;
@@ -657,7 +657,7 @@
     .btn-danger { background: var(--danger); color: #fff; }
     .btn-sm { padding: 4px 10px; font-size: 0.75rem; border-radius: 8px; width: auto; }
 
-    /* Orders Card & Tracking */
+    /* Orders Card & Tracking (Single Card for Combo) */
     .order-card {
       background: #ffffff;
       border: 1px solid var(--border);
@@ -969,7 +969,7 @@
       </div>
     </div>
 
-    <!-- TAB 2: MY ORDERS, LIVE TRACKER & PIN -->
+    <!-- TAB 2: MY ORDERS, LIVE TRACKER & PIN (SINGLE UNIFIED COMBO CARD) -->
     <div id="tab-orders" class="tab-content">
       <div style="font-size: 1.1rem; font-weight: 900; margin-bottom: 0.85rem;">Live Orders & Delivery PIN</div>
       <div id="orders-container">
@@ -1241,11 +1241,9 @@
       }
     ];
 
-    // High Accuracy Category Checker
     function doesItemMatchCategory(item, categoryId) {
       if (categoryId === 'ALL') return true;
 
-      // 1. If product explicitly has category set in store/Firebase
       if (item.category) {
         const itemCat = String(item.category).toUpperCase();
         if (itemCat === categoryId) return true;
@@ -1255,7 +1253,6 @@
         }
       }
 
-      // 2. Intelligent Keyword Detection on Item Name and Description
       const catObj = SYSTEM_CATEGORIES.find(c => c.id === categoryId);
       if (!catObj || !catObj.keywords) return false;
 
@@ -1282,7 +1279,6 @@
     let appliedDiscount = 0;
     let appliedCouponCode = '';
 
-    // CMS Synced Variables
     let cmsCouponCode = 'GOSSAIGAON20';
     let cmsCouponDiscount = 20;
 
@@ -1290,7 +1286,6 @@
     let detectedCustomerLng = null;
     let detectedCustomerLocationLink = "";
 
-    // DOUBLE-TAP ORDER LOCK
     let isPlacingOrder = false;
 
     function sanitizeText(str) {
@@ -1305,11 +1300,9 @@
     function formatWhatsAppUrl(rawPhone) {
       const clean = String(rawPhone || '').replace(/\D/g, '');
       if (!clean) return '';
-      const finalPhone = clean.length === 10 ? '91' + clean : clean;
-      return `https://wa.me/${finalPhone}`;
+      return clean.length === 10 ? '91' + clean : clean;
     }
 
-    // Safe Cart Storage Initialization
     let cart = { items: [] };
     try {
       const saved = localStorage.getItem('gb_ultra_cart');
@@ -1574,12 +1567,10 @@
           if (limitEl) limitEl.textContent = freeDeliveryMinOrder;
         }
 
-        // Live Hero CMS Texts
         if (s.heroTitle) document.getElementById('hero-title-text').textContent = s.heroTitle;
         if (s.heroSubtitle) document.getElementById('hero-sub-text').innerHTML = `${escapeHtml(s.heroSubtitle)} (Free &gt; ₹<span id="hero-free-del-limit">${freeDeliveryMinOrder}</span>)`;
         if (s.heroTag) document.getElementById('hero-tag-text').textContent = s.heroTag;
 
-        // Active Promo Coupon & Discount Sync
         if (s.activeCouponCode) {
           cmsCouponCode = s.activeCouponCode.toUpperCase();
           cmsCouponDiscount = Number(s.activeCouponDiscount || 0);
@@ -1589,7 +1580,6 @@
           }
         }
 
-        // Emergency Weather Ticker Sync
         const ticker = document.getElementById('announcement-ticker');
         if (ticker) {
           if (s.announcementActive && s.announcementText) {
@@ -1725,7 +1715,7 @@
     }
 
     // ==========================================
-    // 8. DYNAMIC CATEGORY RENDER & FILTERING LOGIC
+    // 8. DYNAMIC CATEGORY RENDER & FILTERING
     // ==========================================
     function renderCategoryStrip() {
       const container = document.getElementById('categories-strip');
@@ -1761,7 +1751,7 @@
     }
 
     // ==========================================
-    // 9. INSTANT PRODUCTS FEED WITH SMART MATCHING
+    // 9. INSTANT PRODUCTS FEED
     // ==========================================
     function renderInstantProducts() {
       const grid = document.getElementById('instant-products-grid');
@@ -1781,12 +1771,10 @@
         }
       });
 
-      // 1. Filter by Smart Category Engine
       if (currentCategoryFilter !== 'ALL') {
         itemsList = itemsList.filter(item => doesItemMatchCategory(item, currentCategoryFilter));
       }
 
-      // 2. Filter by Search Query
       if (query) {
         itemsList = itemsList.filter(i => 
           (i.name || '').toLowerCase().includes(query) || 
@@ -1795,7 +1783,6 @@
         );
       }
 
-      // Empty State with Friendly 1-Click Reset Button
       if (itemsList.length === 0) {
         const activeCat = SYSTEM_CATEGORIES.find(c => c.id === currentCategoryFilter);
         grid.innerHTML = `
@@ -2105,7 +2092,7 @@
     }
 
     // ==========================================
-    // 11. DOUBLE-CLICK SAFE ORDER PLACEMENT
+    // 11. DOUBLE-CLICK SAFE ORDER PLACEMENT (WITH BATCH-GROUP ID)
     // ==========================================
     function placeOrder() {
       if (isPlacingOrder) return;
@@ -2135,7 +2122,6 @@
         return;
       }
 
-      // Lock & Disable Button to prevent duplicate orders
       isPlacingOrder = true;
       if (placeBtn) {
         placeBtn.disabled = true;
@@ -2168,6 +2154,8 @@
         ? `https://www.google.com/maps?q=${detectedCustomerLat},${detectedCustomerLng}` 
         : "";
 
+      // GENERATE EXPLICIT COMBO TRIP BATCH ID TO GROUP ORDERS
+      const batchGroupId = 'COMBO_' + Date.now();
       const orderPromises = [];
       let isFirstStore = true;
 
@@ -2185,6 +2173,7 @@
         const batchTotal = Math.max(1, batch.subtotal + batchDeliveryCharge - batchDiscount);
 
         const orderData = {
+          batchGroupId: batchGroupId,
           customerUid: currentUser.uid,
           restaurantId: sId,
           deliveryUid: assignedRiderUid || null,
@@ -2216,7 +2205,6 @@
         saveCartToLocal();
         updateCartBar();
 
-        // Refresh product card counters immediately
         renderInstantProducts();
         if (currentStoreId) renderStoreProductsModal();
 
@@ -2238,53 +2226,107 @@
     }
 
     // ==========================================
-    // 12. ORDERS, STEPPER TRACKER & RIDER STATUS
+    // 12. UNIFIED ORDER LIST (1 CARD FOR 2/3 STORES)
     // ==========================================
     let cachedOrders = {};
+
+    function getCustomerOrdersGrouped() {
+      const groups = {};
+
+      Object.entries(cachedOrders).forEach(([orderId, o]) => {
+        // Group by batchGroupId or shared deliveryOtp & customerUid
+        const groupKey = o.batchGroupId || (o.deliveryOtp ? `${o.customerUid}_${o.deliveryOtp}` : orderId);
+
+        if (!groups[groupKey]) {
+          groups[groupKey] = {
+            groupKey: groupKey,
+            orders: [],
+            createdAt: o.createdAt || Date.now(),
+            deliveryOtp: o.deliveryOtp || '',
+            paymentMode: o.paymentMode || 'COD',
+            phone: o.phone || '',
+            address: o.address || '',
+            totalAmount: 0,
+            deliveryUid: o.deliveryUid || null,
+            riderLat: o.riderLat || null,
+            riderLng: o.riderLng || null,
+            customerLat: o.customerLat || null,
+            customerLng: o.customerLng || null,
+            emergencyAlert: false,
+            emergencyDetails: ''
+          };
+        }
+
+        groups[groupKey].orders.push({ orderId, ...o });
+        groups[groupKey].totalAmount += Number(o.totalAmount || 0);
+
+        if (o.deliveryUid) groups[groupKey].deliveryUid = o.deliveryUid;
+        if (o.riderLat) groups[groupKey].riderLat = o.riderLat;
+        if (o.riderLng) groups[groupKey].riderLng = o.riderLng;
+        if (o.emergencyAlert) {
+          groups[groupKey].emergencyAlert = true;
+          groups[groupKey].emergencyDetails = o.emergencyDetails || '';
+        }
+      });
+
+      return Object.values(groups).sort((a,b) => b.createdAt - a.createdAt);
+    }
 
     function renderOrders() {
       const container = document.getElementById('orders-container');
       container.innerHTML = '';
-      const entries = Object.entries(cachedOrders).sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
 
-      if (entries.length === 0) {
+      const groupedOrders = getCustomerOrdersGrouped();
+
+      if (groupedOrders.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 2rem;">No orders placed yet.</p>';
         return;
       }
 
-      entries.forEach(([orderId, o]) => {
-        const storeName = stores[o.restaurantId]?.name || 'Gossaigaon Kirana';
-        const rider = o.deliveryUid ? deliveryPartners[o.deliveryUid] : null;
-        
-        const rawItems = Array.isArray(o.items) ? o.items : Object.values(o.items || {});
-        const itemsSummary = rawItems.map(i => `${escapeHtml(i.name)} × ${i.qty}`).join(', ');
+      groupedOrders.forEach(group => {
+        const isMultiStore = group.orders.length > 1;
+        const rider = group.deliveryUid ? deliveryPartners[group.deliveryUid] : null;
 
-        const status = o.status || 'PLACED';
-        const isCancelled = status === 'CANCELLED';
-        const isDelivered = status === 'DELIVERED';
+        // Calculate Overall Status for the Combo Order
+        const isAllDelivered = group.orders.every(o => o.status === 'DELIVERED');
+        const isAllCancelled = group.orders.every(o => o.status === 'CANCELLED');
+        const isAnyOut = group.orders.some(o => o.status === 'OUT_FOR_DELIVERY');
+        const isAnyReady = group.orders.some(o => o.status === 'READY_FOR_PICKUP' || o.status === 'PICKED_UP');
+        const isAnyPacking = group.orders.some(o => o.status === 'PREPARING' || o.status === 'PACKING');
+        const isAnyAccepted = group.orders.some(o => o.status === 'ACCEPTED');
 
+        let status = 'PLACED';
+        if (isAllDelivered) status = 'DELIVERED';
+        else if (isAllCancelled) status = 'CANCELLED';
+        else if (isAnyOut) status = 'OUT_FOR_DELIVERY';
+        else if (isAnyReady) status = 'READY_FOR_PICKUP';
+        else if (isAnyPacking) status = 'PACKING';
+        else if (isAnyAccepted) status = 'ACCEPTED';
+
+        // Stepper Progress Width
         let stepProgressWidth = '12%';
         let step1Active = true;
         let step2Active = false;
         let step3Active = false;
         let step4Active = false;
 
-        if (status === 'ACCEPTED' || status === 'PREPARING' || status === 'PACKING') {
+        if (status === 'ACCEPTED' || status === 'PACKING') {
           stepProgressWidth = '40%';
           step2Active = true;
-        } else if (status === 'READY_FOR_PICKUP' || status === 'PICKED_UP' || status === 'OUT_FOR_DELIVERY') {
+        } else if (status === 'READY_FOR_PICKUP' || status === 'OUT_FOR_DELIVERY') {
           stepProgressWidth = '70%';
           step2Active = true;
           step3Active = true;
-        } else if (isDelivered) {
+        } else if (isAllDelivered) {
           stepProgressWidth = '100%';
           step2Active = true;
           step3Active = true;
           step4Active = true;
         }
 
+        // Stepper HTML
         let stepperHtml = '';
-        if (!isCancelled) {
+        if (!isAllCancelled) {
           stepperHtml = `
             <div class="order-stepper">
               <div class="stepper-progress-fill" style="width: ${stepProgressWidth};"></div>
@@ -2294,7 +2336,7 @@
               </div>
               <div class="step-node ${step2Active ? 'active' : ''}">
                 <div class="step-circle"><i class="fa-solid fa-box-open"></i></div>
-                <span>Packing</span>
+                <span>${isMultiStore ? 'Stores Packing' : 'Packing'}</span>
               </div>
               <div class="step-node ${step3Active ? 'active' : ''}">
                 <div class="step-circle"><i class="fa-solid fa-motorcycle"></i></div>
@@ -2309,16 +2351,33 @@
         } else {
           stepperHtml = `
             <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 0.7rem 0.9rem; margin: 0.75rem 0; color: var(--danger); font-size: 0.82rem; font-weight: 700;">
-              <i class="fa-solid fa-ban"></i> Order Cancelled (${escapeHtml(o.cancelledBy || 'USER')})
-              ${o.cancelReason ? `<div style="font-size: 0.74rem; color: #991b1b; margin-top: 2px;">Reason: ${escapeHtml(o.cancelReason)}</div>` : ''}
+              <i class="fa-solid fa-ban"></i> Order Cancelled
             </div>
           `;
         }
 
+        // Store-wise Items Breakdown Mini-Cards
+        let storeItemsHtml = '';
+        group.orders.forEach((o, idx) => {
+          const storeName = stores[o.restaurantId]?.name || `Grocery Store ${idx+1}`;
+          const raw = Array.isArray(o.items) ? o.items : Object.values(o.items || {});
+          const itemsSummary = raw.map(i => `${escapeHtml(i.name)} × ${i.qty}`).join(', ');
+
+          storeItemsHtml += `
+            <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.75rem; margin-bottom: 6px;">
+              <div style="font-size: 0.74rem; font-weight: 800; color: var(--brand-green); margin-bottom: 2px;">
+                <i class="fa-solid fa-store"></i> ${escapeHtml(storeName)}
+              </div>
+              <div style="font-size: 0.78rem; color: #475569;">${itemsSummary || 'Items'}</div>
+            </div>
+          `;
+        });
+
+        // Rider Tracking Details
         let riderSectionHtml = '';
-        if (!isCancelled && !isDelivered) {
+        if (!isAllCancelled && !isAllDelivered) {
           if (rider) {
-            const riderDist = (o.riderLat && o.customerLat) ? calculateDistanceKm(o.riderLat, o.riderLng, o.customerLat, o.customerLng) : null;
+            const riderDist = (group.riderLat && group.customerLat) ? calculateDistanceKm(group.riderLat, group.riderLng, group.customerLat, group.customerLng) : null;
             riderSectionHtml = `
               <div class="delivery-boy-box">
                 <div>
@@ -2330,7 +2389,7 @@
                 </div>
                 <div style="display:flex; gap:6px;">
                   ${rider.phone ? `<a href="tel:${rider.phone}" class="btn btn-outline btn-sm" style="color:var(--brand-green); text-decoration:none;"><i class="fa-solid fa-phone"></i> Call</a>` : ''}
-                  ${o.riderLat ? `<a href="https://www.google.com/maps?q=${o.riderLat},${o.riderLng}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;"><i class="fa-solid fa-location-arrow"></i> Map</a>` : ''}
+                  ${group.riderLat ? `<a href="https://www.google.com/maps?q=${group.riderLat},${group.riderLng}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;"><i class="fa-solid fa-location-arrow"></i> Map</a>` : ''}
                 </div>
               </div>
             `;
@@ -2340,28 +2399,37 @@
                 <i class="fa-solid fa-satellite-dish fa-spin" style="color: var(--brand-green); font-size: 1.25rem;"></i>
                 <div style="font-size: 0.76rem; color: #166534; font-weight: 800;">
                   Connecting to the nearest delivery partner in your area...
-                  <div style="font-size: 0.68rem; color: #64748b; font-weight: 600; margin-top: 1px;">Your grocery is safe & being prepared!</div>
+                  <div style="font-size: 0.68rem; color: #64748b; font-weight: 600; margin-top: 1px;">Your groceries are being prepared across ${group.orders.length} stores!</div>
                 </div>
               </div>
             `;
           }
         }
 
+        // Emergency Delay Alert
         let emergencyAlertHtml = '';
-        if (o.emergencyAlert) {
+        if (group.emergencyAlert) {
           emergencyAlertHtml = `
             <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 0.65rem 0.85rem; margin-bottom: 0.5rem; font-size: 0.75rem; color: #92400e; font-weight: 700;">
-              <i class="fa-solid fa-triangle-exclamation" style="color: #d97706;"></i> Temporary delay: Delivery vehicle issue reported. Our local support is resolving it!
+              <i class="fa-solid fa-triangle-exclamation" style="color: #d97706;"></i> Temporary delay: ${escapeHtml(group.emergencyDetails || 'Delivery rider reported slight weather/road delay.')}
             </div>
           `;
         }
 
+        // Display 1 Single Card for the entire Combo Order
         container.innerHTML += `
           <div class="order-card">
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed var(--border); padding-bottom:0.5rem; margin-bottom:0.5rem;">
               <div>
-                <strong style="font-size:0.95rem; color:#111;">#${orderId.slice(-6)} • ${escapeHtml(storeName)}</strong>
-                <div style="font-size:0.72rem; color:#64748b;">${new Date(o.createdAt).toLocaleTimeString()}</div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <strong style="font-size:0.95rem; color:#111;">#${group.groupKey.slice(-6)}</strong>
+                  ${isMultiStore ? `
+                    <span style="background: rgba(168, 85, 247, 0.15); color: #9333ea; font-size: 0.65rem; font-weight: 900; padding: 2px 7px; border-radius: 6px;">
+                      🏪 ${group.orders.length} STORES COMBO
+                    </span>
+                  ` : ''}
+                </div>
+                <div style="font-size:0.72rem; color:#64748b;">${new Date(group.createdAt).toLocaleTimeString()}</div>
               </div>
               <span style="font-size:0.72rem; font-weight:900; background:var(--brand-green-light); color:var(--brand-green); padding:3px 8px; border-radius:10px;">
                 ${status}
@@ -2371,27 +2439,31 @@
             ${stepperHtml}
             ${emergencyAlertHtml}
 
-            <!-- Secret Delivery PIN -->
-            ${!isDelivered && !isCancelled && o.deliveryOtp ? `
+            <!-- 1 SINGLE DELIVERY PIN FOR THE ENTIRE ORDER -->
+            ${!isAllDelivered && !isAllCancelled && group.deliveryOtp ? `
               <div class="otp-security-badge">
                 <div>
                   <div style="font-size:0.68rem; text-transform:uppercase; font-weight:800; color:#38bdf8;">🔐 Doorstep Delivery PIN</div>
                   <div style="font-size:0.72rem;">Share with Rider ONLY after checking items</div>
                 </div>
-                <div class="otp-digits">${o.deliveryOtp}</div>
+                <div class="otp-digits">${group.deliveryOtp}</div>
               </div>
             ` : ''}
 
-            <p style="font-size:0.8rem; color:#475569; margin: 4px 0;">${itemsSummary}</p>
-            <div style="display:flex; justify-content:space-between; font-weight:900; font-size:0.95rem; margin:6px 0;">
+            <!-- Multi-Store Items Breakdown -->
+            <div style="margin: 0.65rem 0;">
+              ${storeItemsHtml}
+            </div>
+
+            <div style="display:flex; justify-content:space-between; font-weight:900; font-size:0.95rem; margin:6px 0; border-top: 1px dashed var(--border); padding-top: 6px;">
               <span>Total Paid:</span>
-              <span style="color:var(--brand-green);">₹${Number(o.totalAmount || 0).toFixed(0)}</span>
+              <span style="color:var(--brand-green);">₹${group.totalAmount.toFixed(0)}</span>
             </div>
 
             ${riderSectionHtml}
 
             ${(status === 'PLACED' || status === 'ACCEPTED') ? `
-              <button class="btn btn-outline btn-sm" style="color:var(--danger); border-color:#fecaca; margin-top:6px;" onclick="openCancelOrderModal('${orderId}')">
+              <button class="btn btn-outline btn-sm" style="color:var(--danger); border-color:#fecaca; margin-top:6px;" onclick="openCancelOrderModal('${group.groupKey}')">
                 Cancel Order
               </button>
             ` : ''}
@@ -2400,23 +2472,34 @@
       });
     }
 
-    function openCancelOrderModal(orderId) {
-      document.getElementById('cancel-modal-order-id').value = orderId;
+    function openCancelOrderModal(groupKey) {
+      document.getElementById('cancel-modal-order-id').value = groupKey;
       document.getElementById('cancel-order-modal').style.display = 'flex';
       window.history.pushState({ modal: 'cancel' }, '');
     }
 
     function closeCancelOrderModal() { document.getElementById('cancel-order-modal').style.display = 'none'; }
 
+    // CANCELS ALL ORDERS IN THAT COMBO TRIP
     function confirmCustomerCancelOrder() {
-      const orderId = document.getElementById('cancel-modal-order-id').value;
+      const groupKey = document.getElementById('cancel-modal-order-id').value;
       const reason = document.getElementById('cancel-reason-select').value;
-      db.ref('orders/' + orderId).update({
-        status: 'CANCELLED',
-        cancelledBy: 'CUSTOMER',
-        cancelReason: reason,
-        updatedAt: Date.now()
-      }).then(() => {
+
+      const groupedOrders = getCustomerOrdersGrouped();
+      const targetGroup = groupedOrders.find(g => g.groupKey === groupKey);
+
+      if (!targetGroup) return;
+
+      const cancelPromises = targetGroup.orders.map(o => {
+        return db.ref('orders/' + o.orderId).update({
+          status: 'CANCELLED',
+          cancelledBy: 'CUSTOMER',
+          cancelReason: reason,
+          updatedAt: Date.now()
+        });
+      });
+
+      Promise.all(cancelPromises).then(() => {
         closeCancelOrderModal();
         showToast('Order Cancelled', 'info');
       });
