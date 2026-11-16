@@ -56,6 +56,11 @@ jobs:
           cd android
           ./gradlew assembleDebug --no-daemon
 
+      - name: Print Debug APK SHA-1 (Copy this to Firebase Console)
+        run: |
+          echo "=== ADD THIS SHA-1 TO FIREBASE CONSOLE (com.gossaigaon.bazar) ==="
+          keytool -printcert -jarfile android/app/build/outputs/apk/debug/app-debug.apk | grep -E "SHA1:|SHA256:"
+
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -101,6 +106,9 @@ jobs:
             --ks-key-alias "$KEY_ALIAS" \
             --out "$SIGNED_APK" \
             "$ALIGNED_APK"
+
+          echo "=== SIGNED RELEASE APK SHA-1 ==="
+          keytool -printcert -jarfile "$SIGNED_APK" | grep -E "SHA1:|SHA256:"
 
           rm -f release.jks "$ALIGNED_APK"
           echo "built=true" >> "$GITHUB_OUTPUT"
