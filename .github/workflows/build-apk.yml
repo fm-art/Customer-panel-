@@ -56,17 +56,24 @@ jobs:
           cd android
           ./gradlew assembleDebug --no-daemon
 
-      - name: Print Debug APK SHA-1 (Copy this to Firebase Console)
-        run: |
-          echo "=== ADD THIS SHA-1 TO FIREBASE CONSOLE (com.gossaigaon.bazar) ==="
-          keytool -printcert -jarfile android/app/build/outputs/apk/debug/app-debug.apk | grep -E "SHA1:|SHA256:"
-
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gossaigaon-bazar-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+
+      - name: Print Debug APK SHA-1 (Copy this to Firebase Console)
+        run: |
+          echo "=== ADD THIS SHA-1 TO FIREBASE CONSOLE (com.gossaigaon.bazar) ==="
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          RAW_SHA1=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk 2>/dev/null | grep -i "SHA-1 digest:" | head -n 1 | awk '{print $NF}')
+          if [ -n "$RAW_SHA1" ]; then
+            echo "SHA1: $(echo "$RAW_SHA1" | tr '[:lower:]' '[:upper:]' | sed 's/../&:/g; s/:$//')"
+          fi
+          if [ -f "$HOME/.android/debug.keystore" ]; then
+            keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android -keypass android 2>/dev/null | grep -E "SHA1:|SHA256:" || true
+          fi
 
       - name: Build & Sign Release APK (if Keystore Secrets exist)
         id: release_apk
@@ -108,7 +115,10 @@ jobs:
             "$ALIGNED_APK"
 
           echo "=== SIGNED RELEASE APK SHA-1 ==="
-          keytool -printcert -jarfile "$SIGNED_APK" | grep -E "SHA1:|SHA256:"
+          RAW_REL_SHA1=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs "$SIGNED_APK" 2>/dev/null | grep -i "SHA-1 digest:" | head -n 1 | awk '{print $NF}')
+          if [ -n "$RAW_REL_SHA1" ]; then
+            echo "SHA1: $(echo "$RAW_REL_SHA1" | tr '[:lower:]' '[:upper:]' | sed 's/../&:/g; s/:$//')"
+          fi
 
           rm -f release.jks "$ALIGNED_APK"
           echo "built=true" >> "$GITHUB_OUTPUT"
