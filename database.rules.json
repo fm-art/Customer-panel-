@@ -1,0 +1,113 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "admin": {
+      ".read": true,
+      ".write": "auth != null && root.child('customers').child(auth.uid).child('isAdmin').val() === true"
+    },
+    "restaurants": {
+      ".read": true,
+      "$storeId": {
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || auth.uid === $storeId)"
+      }
+    },
+    "menus": {
+      ".read": true,
+      "$storeId": {
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || auth.uid === $storeId)"
+      }
+    },
+    "deliveryPartners": {
+      ".read": true,
+      "$riderId": {
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || auth.uid === $riderId)"
+      }
+    },
+    "customers": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (auth.uid === $uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        "isAdmin": {
+          ".write": "auth != null && root.child('customers').child(auth.uid).child('isAdmin').val() === true"
+        },
+        "blocked": {
+          ".write": "auth != null && root.child('customers').child(auth.uid).child('isAdmin').val() === true"
+        },
+        "walletBalance": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 200000"
+        },
+        "spamScore": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && (!data.exists() || newData.val() >= data.val() || root.child('customers').child(auth.uid).child('isAdmin').val() === true)"
+        }
+      }
+    },
+    "orders": {
+      ".indexOn": ["customerUid", "restaurantId", "deliveryUid", "batchGroupId", "createdAt"],
+      "$orderId": {
+        ".read": "auth != null && (data.child('customerUid').val() === auth.uid || data.child('deliveryUid').val() === auth.uid || data.child('restaurantId').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && newData.child('customerUid').val() === auth.uid && newData.child('status').val() === 'PLACED' && newData.child('totalAmount').isNumber() && newData.child('totalAmount').val() > 0 && newData.child('totalAmount').val() <= 100000) || (data.exists() && (data.child('customerUid').val() === auth.uid || data.child('deliveryUid').val() === auth.uid || data.child('restaurantId').val() === auth.uid)))"
+      }
+    },
+    "usedUtrs": {
+      "$utr": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".validate": "newData.hasChildren(['uid', 'createdAt']) && newData.child('uid').val() === auth.uid"
+      }
+    },
+    "walletTransactions": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        "$txId": {
+          ".write": "auth != null && (auth.uid === $uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+          ".validate": "newData.hasChildren(['type', 'amount', 'createdAt']) && (newData.child('type').val() === 'CREDIT' || newData.child('type').val() === 'DEBIT') && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && newData.child('amount').val() <= 100000"
+        }
+      }
+    },
+    "walletRequests": {
+      "$reqId": {
+        ".read": "auth != null && (data.child('customerUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && newData.child('customerUid').val() === auth.uid && newData.child('status').val() === 'PENDING' && newData.child('amount').isNumber() && newData.child('amount').val() > 0))"
+      }
+    },
+    "refundRequests": {
+      "$reqId": {
+        ".read": "auth != null && (data.child('customerUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && newData.child('customerUid').val() === auth.uid && newData.child('status').val() === 'REQUESTED' && newData.child('amount').isNumber() && newData.child('amount').val() > 0))"
+      }
+    },
+    "feedbacks": {
+      "$fbId": {
+        ".read": "auth != null && (data.child('uid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && newData.child('uid').val() === auth.uid && newData.child('status').val() === 'OPEN'))"
+      }
+    },
+    "productReviews": {
+      ".read": true,
+      "$storeId": {
+        "$itemId": {
+          "$reviewId": {
+            ".write": "auth != null && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5"
+          }
+        }
+      }
+    },
+    "storeRatings": {
+      ".read": true,
+      "$storeId": {
+        "$ratingId": {
+          ".write": "auth != null && newData.child('customerUid').val() === auth.uid && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5"
+        }
+      }
+    },
+    "riderRatings": {
+      ".read": true,
+      "$riderId": {
+        "$ratingId": {
+          ".write": "auth != null && newData.child('customerUid').val() === auth.uid && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5"
+        }
+      }
+    }
+  }
+}
