@@ -12,6 +12,15 @@ const config: CapacitorConfig = {
     captureInput: true,
     webContentsDebuggingEnabled: false,
   },
+  plugins: {
+    LocalNotifications: {
+      smallIcon: 'ic_stat_notification',
+      iconColor: '#0c831f',
+    },
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert'],
+    },
+  },
 };
 
 export default config;
