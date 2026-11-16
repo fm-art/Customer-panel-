@@ -18,7 +18,7 @@ if (!fs.existsSync(androidDir)) {
   process.exit(0);
 }
 
-// 1. Copy Firebase google-services.json (already contains com.gossaigaon.bazar)
+// 1. Copy Firebase google-services.json (contains com.gossaigaon.bazar)
 if (fs.existsSync(sourceGoogleServices)) {
   fs.copyFileSync(sourceGoogleServices, targetGoogleServices);
   console.log('Copied google-services.json to android/app/google-services.json');
