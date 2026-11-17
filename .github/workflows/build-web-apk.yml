@@ -27,21 +27,29 @@ jobs:
       - name: Install dependencies & build Vite app
         run: |
           npm install --legacy-peer-deps
+          npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android @capacitor-firebase/authentication
           npm run build
 
-      - name: Wrap with Capacitor & build Debug APK
+      - name: Setup Capacitor Android & Google Sign-In
         run: |
-          npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android
-          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
-            npx cap init "Chutki" "com.chutki.user" --web-dir dist
-          fi
           if [ ! -d android ]; then
             npx cap add android
           fi
+          cp public/assets/aistudio/google-services_5c61c5de.json android/app/google-services.json
+          if ! grep -q "rgcfaIncludeGoogle" android/variables.gradle; then
+            sed -i "/ext {/a \    rgcfaIncludeGoogle = true" android/variables.gradle
+          fi
           npx cap sync android
+
+      - name: Build Debug APK
+        run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+
+      - name: Print Signing SHA-1 (for Firebase Console)
+        run: |
+          keytool -list -v -alias androiddebugkey -keystore ~/.android/debug.keystore -storepass android -keypass android | grep -E "SHA1:|SHA256:" || true
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
