@@ -27,19 +27,93 @@ jobs:
       - name: Install dependencies & build Vite app
         run: |
           npm install --legacy-peer-deps
-          npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android @capacitor-firebase/authentication
+          npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android @capacitor-firebase/authentication @capacitor/push-notifications @capacitor/local-notifications
           npm run build
 
-      - name: Setup Capacitor Android & Google Sign-In
+      - name: Setup Capacitor Android, All Permissions & Google Sign-In
         run: |
           if [ ! -d android ]; then
             npx cap add android
           fi
+
           cp public/assets/aistudio/google-services_5c61c5de.json android/app/google-services.json
+
           if ! grep -q "rgcfaIncludeGoogle" android/variables.gradle; then
             printf '\next {\n    rgcfaIncludeGoogle = true\n    androidxCredentialsVersion = "1.3.0"\n}\n' >> android/variables.gradle
           fi
-          cat android/variables.gradle
+
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest_path = Path("android/app/src/main/AndroidManifest.xml")
+          xml = manifest_path.read_text(encoding="utf-8")
+          perms = [
+              '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+              '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
+              '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
+              '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+              '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.VIBRATE" />',
+              '<uses-permission android:name="android.permission.WAKE_LOCK" />',
+              '<uses-feature android:name="android.hardware.location.gps" android:required="false" />',
+              '<uses-feature android:name="android.hardware.microphone" android:required="false" />',
+          ]
+          missing = [p for p in perms if p.split('"')[1] not in xml]
+          if missing:
+              block = "\n    ".join(missing) + "\n\n    <application"
+              xml = xml.replace("<application", block, 1)
+              manifest_path.write_text(xml, encoding="utf-8")
+          print(manifest_path.read_text(encoding="utf-8"))
+          PY
+
+          mkdir -p android/app/src/main/java/com/gossaigaon/bazar
+          cat <<'EOF' > android/app/src/main/java/com/gossaigaon/bazar/MainActivity.java
+          package com.gossaigaon.bazar;
+
+          import android.Manifest;
+          import android.content.pm.PackageManager;
+          import android.os.Build;
+          import android.os.Bundle;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+          import com.getcapacitor.BridgeActivity;
+          import java.util.ArrayList;
+          import java.util.List;
+
+          public class MainActivity extends BridgeActivity {
+              private static final int CHUTKI_PERMISSIONS_REQUEST_CODE = 9001;
+
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  requestAllAppPermissions();
+              }
+
+              private void requestAllAppPermissions() {
+                  List<String> needed = new ArrayList<>();
+                  addIfMissing(needed, Manifest.permission.ACCESS_FINE_LOCATION);
+                  addIfMissing(needed, Manifest.permission.ACCESS_COARSE_LOCATION);
+                  addIfMissing(needed, Manifest.permission.RECORD_AUDIO);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                      addIfMissing(needed, Manifest.permission.POST_NOTIFICATIONS);
+                  }
+                  if (!needed.isEmpty()) {
+                      ActivityCompat.requestPermissions(
+                          this,
+                          needed.toArray(new String[0]),
+                          CHUTKI_PERMISSIONS_REQUEST_CODE
+                      );
+                  }
+              }
+
+              private void addIfMissing(List<String> list, String perm) {
+                  if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                      list.add(perm);
+                  }
+              }
+          }
+          EOF
+
           npx cap sync android
 
       - name: Build Debug APK
