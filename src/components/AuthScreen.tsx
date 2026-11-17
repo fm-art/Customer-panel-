@@ -319,8 +319,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       let cred;
 
       if (Capacitor.isNativePlatform()) {
-        // Android / iOS Native Google Account Picker (uses skipNativeAuth from capacitor.config.json)
-        const nativeResult = await FirebaseAuthentication.signInWithGoogle();
+        const nativeResult = await FirebaseAuthentication.signInWithGoogle({
+          useCredentialManager: false,
+        });
         const idToken = nativeResult.credential?.idToken;
         if (!idToken) {
           throw new Error('Google ID token was not returned.');
@@ -328,7 +329,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         const credential = GoogleAuthProvider.credential(idToken);
         cred = await signInWithCredential(auth, credential);
       } else {
-        // Web Browser
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
         cred = await signInWithPopup(auth, provider);
@@ -365,13 +365,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       showToast(`👋 Welcome ${user.displayName || 'back'}!`, 'success');
     } catch (err) {
       triggerHaptic('error');
-      const rawMsg = String(err instanceof Error ? err.message : err || '').toLowerCase();
-      if (rawMsg.includes('cancel')) {
+      const rawDetail = String(err instanceof Error ? err.message : err || '');
+      const rawMsg = rawDetail.toLowerCase();
+      if (rawMsg.includes('cancel') || rawMsg.includes('12501')) {
         setAuthError('Google sign-in was cancelled.');
-      } else if (rawMsg.includes('10') || rawMsg.includes('developer') || rawMsg.includes('nocredential')) {
+      } else if (
+        rawMsg.includes('10:') ||
+        rawMsg.includes(' 10') ||
+        rawMsg.includes('developer') ||
+        rawMsg.includes('nocredential')
+      ) {
         setAuthError(
-          'Google Sign-In SHA-1 fingerprint mismatch. Add APK SHA-1 in Firebase Console for com.gossaigaon.bazar.'
+          'SHA-1 fingerprint missing in Firebase Console for com.gossaigaon.bazar.'
         );
+      } else if (Capacitor.isNativePlatform() && rawDetail) {
+        setAuthError(`Google Sign-In error: ${sanitizeInputBounded(rawDetail, 160)}`);
       } else {
         setAuthError(mapAuthErrorSafe(err, 'google'));
       }
