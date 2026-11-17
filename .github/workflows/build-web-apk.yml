@@ -28,9 +28,14 @@ jobs:
         run: |
           npm install --legacy-peer-deps
           npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android @capacitor-firebase/authentication @capacitor/push-notifications @capacitor/local-notifications
+          if [ -f public/app-logo.png ]; then
+            cp public/app-logo.png public/pwa-512x512.png
+            cp public/app-logo.png public/pwa-192x192.png
+            cp public/app-logo.png public/apple-touch-icon.png
+          fi
           npm run build
 
-      - name: Setup Capacitor Android, All Permissions & Google Sign-In
+      - name: Setup Capacitor Android, App Logo, Notification Icon & Permissions
         run: |
           if [ ! -d android ]; then
             npx cap add android
@@ -41,6 +46,109 @@ jobs:
           if ! grep -q "rgcfaIncludeGoogle" android/variables.gradle; then
             printf '\next {\n    rgcfaIncludeGoogle = true\n    androidxCredentialsVersion = "1.3.0"\n}\n' >> android/variables.gradle
           fi
+
+          python3 -m venv /tmp/iconenv
+          /tmp/iconenv/bin/pip install --quiet pillow
+          /tmp/iconenv/bin/python - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageDraw
+
+          res_dir = Path("android/app/src/main/res")
+
+          # 1. Generate Android App Launcher Icons
+          logo_path = Path("public/app-logo.png") if Path("public/app-logo.png").exists() else Path("public/pwa-512x512.png")
+          logo = Image.open(logo_path).convert("RGBA")
+
+          mipmap_sizes = {
+              "mipmap-mdpi": (48, 108),
+              "mipmap-hdpi": (72, 162),
+              "mipmap-xhdpi": (96, 216),
+              "mipmap-xxhdpi": (144, 324),
+              "mipmap-xxxhdpi": (192, 432),
+          }
+
+          for folder, (icon_sz, fg_sz) in mipmap_sizes.items():
+              out_dir = res_dir / folder
+              out_dir.mkdir(parents=True, exist_ok=True)
+
+              sq = logo.resize((icon_sz, icon_sz), Image.Resampling.LANCZOS)
+              sq.save(out_dir / "ic_launcher.png")
+
+              mask = Image.new("L", (icon_sz, icon_sz), 0)
+              ImageDraw.Draw(mask).ellipse((0, 0, icon_sz - 1, icon_sz - 1), fill=255)
+              rnd = sq.copy()
+              rnd.putalpha(mask)
+              rnd.save(out_dir / "ic_launcher_round.png")
+
+              fg = Image.new("RGBA", (fg_sz, fg_sz), (0, 0, 0, 0))
+              inner = int(fg_sz * 0.64)
+              fg_logo = logo.resize((inner, inner), Image.Resampling.LANCZOS)
+              offset = (fg_sz - inner) // 2
+              fg.paste(fg_logo, (offset, offset), fg_logo)
+              fg.save(out_dir / "ic_launcher_foreground.png")
+
+          values_dir = res_dir / "values"
+          values_dir.mkdir(parents=True, exist_ok=True)
+          (values_dir / "ic_launcher_background.xml").write_text(
+              '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0C831F</color>\n    <color name="chutki_notif_color">#0C831F</color>\n</resources>\n',
+              encoding="utf-8",
+          )
+
+          anydpi_dir = res_dir / "mipmap-anydpi-v26"
+          anydpi_dir.mkdir(parents=True, exist_ok=True)
+          adaptive_xml = (
+              '<?xml version="1.0" encoding="utf-8"?>\n'
+              '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+              '    <background android:drawable="@color/ic_launcher_background"/>\n'
+              '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
+              '</adaptive-icon>\n'
+          )
+          (anydpi_dir / "ic_launcher.xml").write_text(adaptive_xml, encoding="utf-8")
+          (anydpi_dir / "ic_launcher_round.xml").write_text(adaptive_xml, encoding="utf-8")
+
+          # 2. Generate Monochrome White Notification Small Icon (ic_stat_chutki.png)
+          custom_notif = Path("public/notification-icon.png")
+          if custom_notif.exists():
+              src = Image.open(custom_notif).convert("RGBA").resize((192, 192), Image.Resampling.LANCZOS)
+              alpha_extrema = src.getchannel("A").getextrema()
+              notif_base = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
+              px_src = src.load()
+              px_out = notif_base.load()
+              bg_r, bg_g, bg_b, _ = px_src[0, 0]
+              has_transparency = alpha_extrema[0] < 240
+              for y in range(192):
+                  for x in range(192):
+                      r, g, b, a = px_src[x, y]
+                      if has_transparency:
+                          if a > 20:
+                              px_out[x, y] = (255, 255, 255, a)
+                      else:
+                          dist = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
+                          if dist > 45:
+                              px_out[x, y] = (255, 255, 255, 255)
+          else:
+              # Clean white shopping-cart + flash notification silhouette
+              notif_base = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
+              d = ImageDraw.Draw(notif_base)
+              white = (255, 255, 255, 255)
+              d.line([(24, 48), (52, 48), (74, 126), (148, 126), (166, 68), (58, 68)], fill=white, width=14, joint="curve")
+              d.ellipse((68, 138, 94, 164), fill=white)
+              d.ellipse((126, 138, 152, 164), fill=white)
+              d.polygon([(126, 20), (108, 48), (124, 48), (114, 72), (144, 40), (126, 40)], fill=white)
+
+          notif_sizes = {
+              "drawable": 96,
+              "drawable-mdpi": 24,
+              "drawable-hdpi": 36,
+              "drawable-xhdpi": 48,
+              "drawable-xxhdpi": 72,
+              "drawable-xxxhdpi": 96,
+          }
+          for d_folder, n_sz in notif_sizes.items():
+              d_dir = res_dir / d_folder
+              d_dir.mkdir(parents=True, exist_ok=True)
+              notif_base.resize((n_sz, n_sz), Image.Resampling.LANCZOS).save(d_dir / "ic_stat_chutki.png")
+          PY
 
           python3 - <<'PY'
           from pathlib import Path
@@ -62,7 +170,13 @@ jobs:
           if missing:
               block = "\n    ".join(missing) + "\n\n    <application"
               xml = xml.replace("<application", block, 1)
-              manifest_path.write_text(xml, encoding="utf-8")
+
+          meta_icon = '<meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_chutki" />'
+          meta_color = '<meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/chutki_notif_color" />'
+          if "default_notification_icon" not in xml:
+              xml = xml.replace("</application>", f"        {meta_icon}\n        {meta_color}\n    </application>", 1)
+
+          manifest_path.write_text(xml, encoding="utf-8")
           print(manifest_path.read_text(encoding="utf-8"))
           PY
 
