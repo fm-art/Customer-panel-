@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import {
   onAuthStateChanged,
   sendEmailVerification,
@@ -3337,6 +3339,9 @@ export default function App() {
       localStorage.removeItem(CART_STORAGE_KEY);
     } catch {
       // Ignore
+    }
+    if (Capacitor.isNativePlatform()) {
+      void FirebaseAuthentication.signOut().catch(() => {});
     }
     if (currentUser) {
       void signOut(auth);
