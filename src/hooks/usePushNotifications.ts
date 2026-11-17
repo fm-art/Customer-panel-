@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { PushNotifications } from '@capacitor/push-notifications';
 import { ref, update } from 'firebase/database';
 import { getToken, onMessage } from 'firebase/messaging';
 import { db, getFirebaseMessagingSafe } from '../firebase';
@@ -6,6 +9,7 @@ import type { AppNotification, TabKey } from '../types/bazar';
 
 const INBOX_STORAGE_KEY = 'gb_push_inbox_v1';
 const PROMPT_DISMISSED_KEY = 'gb_push_prompt_dismissed_v1';
+const ANDROID_ALERT_CHANNEL_ID = 'chutki_alerts';
 
 function loadSavedInbox(): AppNotification[] {
   try {
@@ -18,6 +22,16 @@ function loadSavedInbox(): AppNotification[] {
   }
 }
 
+function mapCapPermToWeb(state: string | undefined): NotificationPermission {
+  if (state === 'granted') return 'granted';
+  if (state === 'denied') return 'denied';
+  return 'default';
+}
+
+function makeAndroidNotifId(): number {
+  return Math.floor(Math.random() * 1_000_000_000) + 1;
+}
+
 export type PushPermissionState = NotificationPermission | 'unsupported';
 
 export function usePushNotifications(
@@ -25,12 +39,18 @@ export function usePushNotifications(
   isDemoMode: boolean,
   onNavigateTab?: (tab: TabKey) => void
 ) {
+  const isNative = Capacitor.isNativePlatform();
+
   const [permission, setPermission] = useState<PushPermissionState>(() => {
+    if (Capacitor.isNativePlatform()) {
+      return 'default';
+    }
     if (typeof window === 'undefined' || !('Notification' in window)) {
       return 'unsupported';
     }
     return Notification.permission;
   });
+
   const [notifications, setNotifications] = useState<AppNotification[]>(loadSavedInbox);
   const [promptDismissed, setPromptDismissed] = useState<boolean>(() => {
     try {
@@ -59,6 +79,29 @@ export function usePushNotifications(
 
   const showNativeNotification = useCallback(
     async (notif: AppNotification) => {
+      if (isNative) {
+        try {
+          const perm = await LocalNotifications.checkPermissions();
+          if (perm.display !== 'granted') return;
+          await LocalNotifications.schedule({
+            notifications: [
+              {
+                id: makeAndroidNotifId(),
+                title: notif.title,
+                body: notif.body,
+                channelId: ANDROID_ALERT_CHANNEL_ID,
+                extra: {
+                  targetTab: notif.targetTab || 'orders',
+                },
+              },
+            ],
+          });
+        } catch {
+          // Ignore local notification schedule errors
+        }
+        return;
+      }
+
       if (typeof window === 'undefined' || !('Notification' in window)) return;
       if (Notification.permission !== 'granted') return;
 
@@ -88,7 +131,7 @@ export function usePushNotifications(
         // Fallback silently if browser restricts notification constructor
       }
     },
-    []
+    [isNative]
   );
 
   const dismissBanner = useCallback(() => {
@@ -159,6 +202,15 @@ export function usePushNotifications(
 
   const syncFcmToken = useCallback(async () => {
     if (!userUid || isDemoMode) return;
+    if (isNative) {
+      try {
+        await PushNotifications.register();
+      } catch {
+        // Ignore register error if Google Play Services unavailable
+      }
+      return;
+    }
+
     try {
       const messaging = await getFirebaseMessagingSafe();
       if (!messaging || !('serviceWorker' in navigator)) return;
@@ -179,17 +231,55 @@ export function usePushNotifications(
         });
       }
     } catch {
-      // VAPID key may not be configured; local SW push notifications still operate cleanly
       if (userUid && !isDemoMode) {
         void update(ref(db, `customers/${userUid}`), { pushEnabled: true }).catch(() => {});
       }
     }
-  }, [userUid, isDemoMode]);
+  }, [userUid, isDemoMode, isNative]);
 
   const enablePushNotifications = useCallback(async (): Promise<{
     granted: boolean;
     message: string;
   }> => {
+    if (isNative) {
+      try {
+        const pushPerm = await PushNotifications.requestPermissions();
+        const localPerm = await LocalNotifications.requestPermissions();
+        const granted =
+          pushPerm.receive === 'granted' || localPerm.display === 'granted';
+        setPermission(granted ? 'granted' : 'denied');
+
+        if (granted) {
+          dismissPrompt();
+          await syncFcmToken();
+          const welcomeNotif: AppNotification = {
+            id: `welcome_${Date.now()}`,
+            title: '🔔 Chutki Alerts Active!',
+            body: 'You will now receive live order updates, rider arrival PIN & deal alerts.',
+            tag: 'gb-welcome-push',
+            type: 'SYSTEM',
+            targetTab: 'home',
+            createdAt: Date.now(),
+            read: false,
+          };
+          pushNotification(welcomeNotif, true);
+          return {
+            granted: true,
+            message: '🔔 Push notifications enabled! Check your notification tray.',
+          };
+        }
+        return {
+          granted: false,
+          message: 'Please allow Notifications in Android App Settings.',
+        };
+      } catch (err) {
+        return {
+          granted: false,
+          message: err instanceof Error ? err.message : 'Unable to enable notifications.',
+        };
+      }
+    }
+
     if (typeof window === 'undefined' || !('Notification' in window)) {
       setPermission('unsupported');
       return {
@@ -233,7 +323,7 @@ export function usePushNotifications(
         message: err instanceof Error ? err.message : 'Unable to enable notifications.',
       };
     }
-  }, [dismissPrompt, pushNotification, syncFcmToken]);
+  }, [dismissPrompt, isNative, pushNotification, syncFcmToken]);
 
   const sendTestPush = useCallback(async () => {
     if (permission !== 'granted') {
@@ -253,8 +343,114 @@ export function usePushNotifications(
     return { granted: true, message: '🔔 Test push notification sent!' };
   }, [enablePushNotifications, permission, pushNotification]);
 
-  // Listen for FCM foreground messages & SW notification clicks
+  // Native Android Capacitor Push + Local Notification Setup & Listeners
   useEffect(() => {
+    if (!isNative) return undefined;
+    let active = true;
+    const handles: PluginListenerHandle[] = [];
+
+    const setupNativePush = async () => {
+      try {
+        await LocalNotifications.createChannel({
+          id: ANDROID_ALERT_CHANNEL_ID,
+          name: 'Chutki Alerts',
+          description: 'Order updates, rider arrival PIN & voice call alerts',
+          importance: 5,
+          visibility: 1,
+          vibration: true,
+        });
+      } catch {
+        // Ignore channel error on older Android
+      }
+
+      try {
+        const pushPerm = await PushNotifications.checkPermissions();
+        const localPerm = await LocalNotifications.checkPermissions();
+        if (!active) return;
+        const resolved =
+          pushPerm.receive === 'granted' || localPerm.display === 'granted'
+            ? 'granted'
+            : mapCapPermToWeb(pushPerm.receive);
+        setPermission(resolved);
+
+        if (resolved === 'granted') {
+          await PushNotifications.register();
+        }
+      } catch {
+        // Ignore permission check failure
+      }
+
+      try {
+        handles.push(
+          await PushNotifications.addListener('registration', (token) => {
+            if (!active || !token.value) return;
+            setFcmToken(token.value);
+            if (userUid && !isDemoMode) {
+              void update(ref(db, `customers/${userUid}`), {
+                fcmToken: token.value,
+                pushEnabled: true,
+              }).catch(() => {});
+            }
+          })
+        );
+
+        handles.push(
+          await PushNotifications.addListener('pushNotificationReceived', (notif) => {
+            if (!active) return;
+            const targetTab =
+              (notif.data?.targetTab as TabKey | undefined) || 'orders';
+            pushNotification(
+              {
+                id: `fcm_${notif.id || Date.now()}`,
+                title: notif.title || 'Chutki',
+                body: notif.body || 'You have a new update.',
+                tag: 'gb-native-fcm',
+                type: 'ORDER',
+                targetTab,
+                createdAt: Date.now(),
+                read: false,
+              },
+              true
+            );
+          })
+        );
+
+        handles.push(
+          await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+            const targetTab =
+              (action.notification.data?.targetTab as TabKey | undefined) || 'orders';
+            onNavigateTab?.(targetTab);
+          })
+        );
+
+        handles.push(
+          await LocalNotifications.addListener(
+            'localNotificationActionPerformed',
+            (action) => {
+              const targetTab =
+                (action.notification.extra?.targetTab as TabKey | undefined) || 'orders';
+              onNavigateTab?.(targetTab);
+            }
+          )
+        );
+      } catch {
+        // Ignore listener registration errors
+      }
+    };
+
+    void setupNativePush();
+
+    return () => {
+      active = false;
+      handles.forEach((h) => {
+        void h.remove().catch(() => {});
+      });
+    };
+  }, [isDemoMode, isNative, onNavigateTab, pushNotification, userUid]);
+
+  // Listen for Web FCM foreground messages & SW notification clicks
+  useEffect(() => {
+    if (isNative) return undefined;
     let unsubscribeFcm: (() => void) | undefined;
     let isMounted = true;
 
@@ -299,7 +495,7 @@ export function usePushNotifications(
         navigator.serviceWorker.removeEventListener('message', handleSwMessage);
       }
     };
-  }, [onNavigateTab, pushNotification]);
+  }, [isNative, onNavigateTab, pushNotification]);
 
   useEffect(() => {
     if (permission === 'granted' && userUid && !isDemoMode) {
