@@ -50,7 +50,12 @@ jobs:
 
       - name: Print Actual APK SHA-1 (Copy this to Firebase Console)
         run: |
-          keytool -printcert -jarfile android/app/build/outputs/apk/debug/app-debug.apk
+          cd android
+          ./gradlew signingReport | grep -E "Variant:|SHA1:|SHA-256:" || true
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk || true
+          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
