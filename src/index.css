@@ -428,7 +428,7 @@ body {
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   position: relative;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
   min-width: 0;
@@ -491,7 +491,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 10px 0 6px;
+  margin: 20px 0 8px;
   cursor: pointer;
 }
 
@@ -519,7 +519,13 @@ body {
   font-size: 0.7rem;
   color: #64748b;
   font-weight: 600;
-  margin-bottom: 6px;
+  line-height: 1.3;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 1.82rem;
 }
 
 .qc-store-tag {
@@ -612,6 +618,7 @@ body {
 }
 
 .qc-footer {
+  margin-top: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1138,7 +1145,6 @@ body {
   font-size: 0.74rem;
   padding: 5px 10px;
 }
-
 
 .bottom-nav {
   position: fixed;
