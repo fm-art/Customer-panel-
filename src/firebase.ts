@@ -1,5 +1,11 @@
+import { Capacitor } from '@capacitor/core';
 import { getApps, initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import {
+  getAuth,
+  indexedDBLocalPersistence,
+  initializeAuth,
+  type Auth,
+} from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 import { getMessaging, isSupported, type Messaging } from 'firebase/messaging';
 
@@ -15,7 +21,21 @@ export const firebaseConfig = {
 };
 
 const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+function createFirebaseAuth(): Auth {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      return initializeAuth(app, {
+        persistence: indexedDBLocalPersistence,
+      });
+    } catch {
+      return getAuth(app);
+    }
+  }
+  return getAuth(app);
+}
+
+export const auth = createFirebaseAuth();
 export const db = getDatabase(app);
 
 let messagingPromise: Promise<Messaging | null> | null = null;
