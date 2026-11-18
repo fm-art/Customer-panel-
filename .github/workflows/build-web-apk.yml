@@ -35,7 +35,7 @@ jobs:
           fi
           npm run build
 
-      - name: Setup Capacitor Android, Stable Channels, Permissions & Icons
+      - name: Setup Capacitor Android, Crash-Proof Background Calls & Permissions
         run: |
           if [ ! -d android ]; then
             npx cap add android
@@ -47,6 +47,25 @@ jobs:
             printf '\next {\n    rgcfaIncludeGoogle = true\n    androidxCredentialsVersion = "1.3.0"\n}\n' >> android/variables.gradle
           fi
 
+          # Add Firebase Database & Messaging native libraries safely
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle_path = Path("android/app/build.gradle")
+          content = gradle_path.read_text(encoding="utf-8")
+          if "firebase-database" not in content:
+              insert_pos = content.find("dependencies {")
+              if insert_pos != -1:
+                  deps = (
+                      "dependencies {\n"
+                      "    implementation platform('com.google.firebase:firebase-bom:33.5.1')\n"
+                      "    implementation 'com.google.firebase:firebase-database'\n"
+                      "    implementation 'com.google.firebase:firebase-messaging'\n"
+                  )
+                  content = content.replace("dependencies {", deps, 1)
+                  gradle_path.write_text(content, encoding="utf-8")
+          PY
+
+          # Generate App & Notification Icons
           python3 -m venv /tmp/iconenv
           /tmp/iconenv/bin/pip install --quiet pillow
           /tmp/iconenv/bin/python - <<'PY'
@@ -126,6 +145,7 @@ jobs:
               notif_base.resize((n_sz, n_sz), Image.Resampling.LANCZOS).save(d_dir / "ic_stat_chutki.png")
           PY
 
+          # Clean AndroidManifest.xml without crash-inducing foreground service types
           python3 - <<'PY'
           from pathlib import Path
           manifest_path = Path("android/app/src/main/AndroidManifest.xml")
@@ -140,6 +160,7 @@ jobs:
               '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
               '<uses-permission android:name="android.permission.VIBRATE" />',
               '<uses-permission android:name="android.permission.WAKE_LOCK" />',
+              '<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />',
               '<uses-feature android:name="android.hardware.location.gps" android:required="false" />',
               '<uses-feature android:name="android.hardware.microphone" android:required="false" />',
           ]
@@ -148,16 +169,438 @@ jobs:
               block = "\n    ".join(missing) + "\n\n    <application"
               xml = xml.replace("<application", block, 1)
 
-          meta_icon = '<meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_chutki" />'
-          meta_color = '<meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/chutki_notif_color" />'
-          if "default_notification_icon" not in xml:
-              xml = xml.replace("</application>", f"        {meta_icon}\n        {meta_color}\n    </application>", 1)
+          app_components = (
+              '\n        <activity\n'
+              '            android:name="com.gossaigaon.bazar.IncomingCallActivity"\n'
+              '            android:theme="@style/AppTheme.NoActionBar"\n'
+              '            android:showOnLockScreen="true"\n'
+              '            android:turnScreenOn="true"\n'
+              '            android:launchMode="singleTop"\n'
+              '            android:excludeFromRecents="true"\n'
+              '            android:exported="false" />\n'
+              '\n        <service\n'
+              '            android:name="com.gossaigaon.bazar.ChutkiFirebaseMessagingService"\n'
+              '            android:exported="false">\n'
+              '            <intent-filter>\n'
+              '                <action android:name="com.google.firebase.MESSAGING_EVENT" />\n'
+              '            </intent-filter>\n'
+              '        </service>\n'
+              '        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_chutki" />\n'
+              '        <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/chutki_notif_color" />\n'
+          )
+
+          if "IncomingCallActivity" not in xml:
+              xml = xml.replace("</application>", f"{app_components}    </application>", 1)
 
           manifest_path.write_text(xml, encoding="utf-8")
           PY
 
-          # Clean, stable MainActivity.java without crash-causing startup foreground services
+          # Create Native Incoming Call Layout
+          mkdir -p android/app/src/main/res/layout
+          cat <<'EOF' > android/app/src/main/res/layout/activity_incoming_call.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#064E3B"
+              android:padding="24dp">
+
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_centerHorizontal="true"
+                  android:layout_marginTop="36dp"
+                  android:gravity="center"
+                  android:orientation="vertical">
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:background="#15803D"
+                      android:paddingStart="12dp"
+                      android:paddingTop="4dp"
+                      android:paddingEnd="12dp"
+                      android:paddingBottom="4dp"
+                      android:text="CHUTKI IN-APP VOICE CALL"
+                      android:textColor="#A7F3D0"
+                      android:textSize="11sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:id="@+id/tvCallOrderId"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="14dp"
+                      android:text="Order Delivery"
+                      android:textColor="#D1FAE5"
+                      android:textSize="13sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:id="@+id/tvCallerName"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="4dp"
+                      android:text="Delivery Rider"
+                      android:textColor="#FFFFFF"
+                      android:textSize="26sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="6dp"
+                      android:text="Incoming voice call..."
+                      android:textColor="#E0F2FE"
+                      android:textSize="14sp" />
+              </LinearLayout>
+
+              <TextView
+                  android:id="@+id/tvAvatarInitial"
+                  android:layout_width="100dp"
+                  android:layout_height="100dp"
+                  android:layout_centerInParent="true"
+                  android:background="#0C831F"
+                  android:gravity="center"
+                  android:text="R"
+                  android:textColor="#FFFFFF"
+                  android:textSize="40sp"
+                  android:textStyle="bold" />
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_alignParentBottom="true"
+                  android:layout_marginBottom="36dp"
+                  android:gravity="center"
+                  android:orientation="horizontal"
+                  android:weightSum="2">
+
+                  <LinearLayout
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:gravity="center"
+                      android:orientation="vertical">
+
+                      <Button
+                          android:id="@+id/btnDeclineCall"
+                          android:layout_width="64dp"
+                          android:layout_height="64dp"
+                          android:background="#DC2626"
+                          android:text="✕"
+                          android:textColor="#FFFFFF"
+                          android:textSize="22sp"
+                          android:textStyle="bold" />
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:text="Decline"
+                          android:textColor="#FECACA"
+                          android:textSize="12sp"
+                          android:textStyle="bold" />
+                  </LinearLayout>
+
+                  <LinearLayout
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:gravity="center"
+                      android:orientation="vertical">
+
+                      <Button
+                          android:id="@+id/btnAnswerCall"
+                          android:layout_width="64dp"
+                          android:layout_height="64dp"
+                          android:background="#16A34A"
+                          android:text="✓"
+                          android:textColor="#FFFFFF"
+                          android:textSize="22sp"
+                          android:textStyle="bold" />
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="8dp"
+                          android:text="Answer"
+                          android:textColor="#BBF7D0"
+                          android:textSize="12sp"
+                          android:textStyle="bold" />
+                  </LinearLayout>
+              </LinearLayout>
+          </RelativeLayout>
+          EOF
+
           mkdir -p android/app/src/main/java/com/gossaigaon/bazar
+
+          # IncomingCallActivity.java (Safe & Crash-Proof)
+          cat <<'EOF' > android/app/src/main/java/com/gossaigaon/bazar/IncomingCallActivity.java
+          package com.gossaigaon.bazar;
+
+          import android.app.Activity;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.media.AudioAttributes;
+          import android.media.Ringtone;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.VibrationEffect;
+          import android.os.Vibrator;
+          import android.view.WindowManager;
+          import android.widget.Button;
+          import android.widget.TextView;
+          import com.google.firebase.database.FirebaseDatabase;
+          import java.util.HashMap;
+          import java.util.Map;
+
+          public class IncomingCallActivity extends Activity {
+              private Ringtone ringtone;
+              private Vibrator vibrator;
+              private String orderId = "";
+              private String tripId = "";
+              private String customerUid = "";
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                          setShowWhenLocked(true);
+                          setTurnScreenOn(true);
+                      } else {
+                          getWindow().addFlags(
+                              WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                              WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
+                              WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                          );
+                      }
+
+                      setContentView(R.layout.activity_incoming_call);
+
+                      orderId = getIntent().getStringExtra("orderId");
+                      tripId = getIntent().getStringExtra("tripId");
+                      customerUid = getIntent().getStringExtra("customerUid");
+                      String riderName = getIntent().getStringExtra("riderName");
+                      if (riderName == null || riderName.isEmpty()) riderName = "Delivery Rider";
+
+                      TextView tvCaller = findViewById(R.id.tvCallerName);
+                      TextView tvOrder = findViewById(R.id.tvCallOrderId);
+                      TextView tvAvatar = findViewById(R.id.tvAvatarInitial);
+                      Button btnAnswer = findViewById(R.id.btnAnswerCall);
+                      Button btnDecline = findViewById(R.id.btnDeclineCall);
+
+                      tvCaller.setText(riderName);
+                      tvAvatar.setText(riderName.substring(0, 1).toUpperCase());
+                      if (orderId != null && !orderId.isEmpty()) {
+                          String shortId = orderId.length() > 6 ? orderId.substring(orderId.length() - 6) : orderId;
+                          tvOrder.setText("Order #" + shortId.toUpperCase());
+                      }
+
+                      startRinging();
+
+                      btnAnswer.setOnClickListener(v -> {
+                          stopRinging();
+                          Intent appIntent = new Intent(this, MainActivity.class);
+                          appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                          appIntent.putExtra("CALL_ACTION", "ANSWER");
+                          appIntent.putExtra("orderId", orderId);
+                          appIntent.putExtra("tripId", tripId);
+                          startActivity(appIntent);
+                          finish();
+                      });
+
+                      btnDecline.setOnClickListener(v -> {
+                          stopRinging();
+                          declineCallInFirebase();
+                          finish();
+                      });
+                  } catch (Exception e) {
+                      finish();
+                  }
+              }
+
+              private void startRinging() {
+                  try {
+                      Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                      ringtone = RingtoneManager.getRingtone(getApplicationContext(), ringtoneUri);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                          AudioAttributes aa = new AudioAttributes.Builder()
+                              .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                              .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                              .build();
+                          ringtone.setAudioAttributes(aa);
+                      }
+                      ringtone.play();
+                  } catch (Exception ignored) {}
+
+                  try {
+                      vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+                      if (vibrator != null) {
+                          long[] pattern = new long[]{0, 500, 300, 500, 300, 500};
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                              vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0));
+                          } else {
+                              vibrator.vibrate(pattern, 0);
+                          }
+                      }
+                  } catch (Exception ignored) {}
+              }
+
+              private void stopRinging() {
+                  try {
+                      if (ringtone != null && ringtone.isPlaying()) {
+                          ringtone.stop();
+                      }
+                  } catch (Exception ignored) {}
+                  try {
+                      if (vibrator != null) {
+                          vibrator.cancel();
+                      }
+                  } catch (Exception ignored) {}
+              }
+
+              private void declineCallInFirebase() {
+                  try {
+                      long now = System.currentTimeMillis();
+                      Map<String, Object> updates = new HashMap<>();
+                      if (orderId != null && !orderId.isEmpty()) {
+                          updates.put("inAppCalls/" + orderId + "/status", "DECLINED");
+                          updates.put("inAppCalls/" + orderId + "/customerAnswered", false);
+                          updates.put("inAppCalls/" + orderId + "/updatedAt", now);
+                      }
+                      if (customerUid != null && !customerUid.isEmpty()) {
+                          updates.put("customerCallInbox/" + customerUid + "/status", "DECLINED");
+                          updates.put("customerCallInbox/" + customerUid + "/customerAnswered", false);
+                          updates.put("customerCallInbox/" + customerUid + "/updatedAt", now);
+                      }
+                      FirebaseDatabase.getInstance("https://test-2a0d0-default-rtdb.firebaseio.com")
+                          .getReference().updateChildren(updates);
+                  } catch (Exception ignored) {}
+              }
+
+              @Override
+              protected void onDestroy() {
+                  stopRinging();
+                  super.onDestroy();
+              }
+          }
+          EOF
+
+          # ChutkiFirebaseMessagingService.java (FCM Background Wakeup without Crash)
+          cat <<'EOF' > android/app/src/main/java/com/gossaigaon/bazar/ChutkiFirebaseMessagingService.java
+          package com.gossaigaon.bazar;
+
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.media.AudioAttributes;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.PowerManager;
+          import androidx.annotation.NonNull;
+          import androidx.core.app.NotificationCompat;
+          import com.google.firebase.messaging.FirebaseMessagingService;
+          import com.google.firebase.messaging.RemoteMessage;
+          import java.util.Map;
+
+          public class ChutkiFirebaseMessagingService extends FirebaseMessagingService {
+              @Override
+              public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
+                  super.onMessageReceived(remoteMessage);
+                  try {
+                      Map<String, String> data = remoteMessage.getData();
+                      String type = data.get("type");
+
+                      if ("CALL".equalsIgnoreCase(type) || "INCOMING_CALL".equalsIgnoreCase(type)) {
+                          handleIncomingCallNotification(data);
+                      } else {
+                          handleStandardNotification(remoteMessage);
+                      }
+                  } catch (Exception ignored) {}
+              }
+
+              private void handleIncomingCallNotification(Map<String, String> data) {
+                  try {
+                      PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                      if (pm != null) {
+                          PowerManager.WakeLock wl = pm.newWakeLock(
+                              PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                              "Chutki:FCMCallWakeLock"
+                          );
+                          wl.acquire(15000);
+                      }
+                  } catch (Exception ignored) {}
+
+                  Intent callIntent = new Intent(this, IncomingCallActivity.class);
+                  callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  callIntent.putExtra("orderId", data.get("orderId"));
+                  callIntent.putExtra("tripId", data.get("tripId"));
+                  callIntent.putExtra("riderUid", data.get("riderUid"));
+                  callIntent.putExtra("riderName", data.get("riderName"));
+                  callIntent.putExtra("callId", data.get("callId"));
+
+                  PendingIntent pi = PendingIntent.getActivity(
+                      this, 902, callIntent,
+                      Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0
+                  );
+
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "chutki_calls")
+                      .setSmallIcon(R.drawable.ic_stat_chutki)
+                      .setContentTitle("Incoming Voice Call • " + (data.get("riderName") != null ? data.get("riderName") : "Rider"))
+                      .setContentText("Tap to answer order delivery call")
+                      .setPriority(NotificationCompat.PRIORITY_MAX)
+                      .setCategory(NotificationCompat.CATEGORY_CALL)
+                      .setFullScreenIntent(pi, true)
+                      .setAutoCancel(true)
+                      .setOngoing(true);
+
+                  NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm != null) {
+                      nm.notify(9002, builder.build());
+                  }
+
+                  startActivity(callIntent);
+              }
+
+              private void handleStandardNotification(RemoteMessage remoteMessage) {
+                  String title = "Chutki";
+                  String body = "New order update";
+                  if (remoteMessage.getNotification() != null) {
+                      if (remoteMessage.getNotification().getTitle() != null) title = remoteMessage.getNotification().getTitle();
+                      if (remoteMessage.getNotification().getBody() != null) body = remoteMessage.getNotification().getBody();
+                  }
+
+                  Intent intent = new Intent(this, MainActivity.class);
+                  intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  PendingIntent pi = PendingIntent.getActivity(
+                      this, 0, intent,
+                      Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0
+                  );
+
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "chutki_alerts")
+                      .setSmallIcon(R.drawable.ic_stat_chutki)
+                      .setContentTitle(title)
+                      .setContentText(body)
+                      .setPriority(NotificationCompat.PRIORITY_HIGH)
+                      .setContentIntent(pi)
+                      .setAutoCancel(true);
+
+                  NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm != null) {
+                      nm.notify((int) System.currentTimeMillis(), builder.build());
+                  }
+              }
+          }
+          EOF
+
+          # Clean Crash-Proof MainActivity.java
           cat <<'EOF' > android/app/src/main/java/com/gossaigaon/bazar/MainActivity.java
           package com.gossaigaon.bazar;
 
@@ -188,55 +631,57 @@ jobs:
 
               private void setupCallAndNotificationChannels() {
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      NotificationManager nm = getSystemService(NotificationManager.class);
-                      if (nm != null) {
-                          // 1. High priority incoming call channel with loud ringtone & vibration
-                          NotificationChannel callChan = new NotificationChannel(
-                              "chutki_calls",
-                              "Incoming Rider Voice Calls",
-                              NotificationManager.IMPORTANCE_HIGH
-                          );
-                          callChan.setDescription("Loud incoming calls from delivery riders");
-                          callChan.enableVibration(true);
-                          callChan.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500});
-                          Uri callSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-                          if (callSound != null) {
-                              AudioAttributes attr = new AudioAttributes.Builder()
-                                  .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                                  .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                                  .build();
-                              callChan.setSound(callSound, attr);
-                          }
-                          nm.createNotificationChannel(callChan);
+                      try {
+                          NotificationManager nm = getSystemService(NotificationManager.class);
+                          if (nm != null) {
+                              NotificationChannel callChan = new NotificationChannel(
+                                  "chutki_calls",
+                                  "Incoming Rider Voice Calls",
+                                  NotificationManager.IMPORTANCE_HIGH
+                              );
+                              callChan.setDescription("Loud incoming calls from delivery riders");
+                              callChan.enableVibration(true);
+                              callChan.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500});
+                              Uri callSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                              if (callSound != null) {
+                                  AudioAttributes attr = new AudioAttributes.Builder()
+                                      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                      .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                                      .build();
+                                  callChan.setSound(callSound, attr);
+                              }
+                              nm.createNotificationChannel(callChan);
 
-                          // 2. High priority order status alerts channel
-                          NotificationChannel alertChan = new NotificationChannel(
-                              "chutki_alerts",
-                              "Order & Delivery Alerts",
-                              NotificationManager.IMPORTANCE_HIGH
-                          );
-                          alertChan.setDescription("Live grocery order tracking and PIN alerts");
-                          alertChan.enableVibration(true);
-                          nm.createNotificationChannel(alertChan);
-                      }
+                              NotificationChannel alertChan = new NotificationChannel(
+                                  "chutki_alerts",
+                                  "Order & Delivery Alerts",
+                                  NotificationManager.IMPORTANCE_HIGH
+                              );
+                              alertChan.setDescription("Live grocery order tracking and PIN alerts");
+                              alertChan.enableVibration(true);
+                              nm.createNotificationChannel(alertChan);
+                          }
+                      } catch (Exception ignored) {}
                   }
               }
 
               private void requestAllAppPermissions() {
-                  List<String> needed = new ArrayList<>();
-                  addIfMissing(needed, Manifest.permission.ACCESS_FINE_LOCATION);
-                  addIfMissing(needed, Manifest.permission.ACCESS_COARSE_LOCATION);
-                  addIfMissing(needed, Manifest.permission.RECORD_AUDIO);
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                      addIfMissing(needed, Manifest.permission.POST_NOTIFICATIONS);
-                  }
-                  if (!needed.isEmpty()) {
-                      ActivityCompat.requestPermissions(
-                          this,
-                          needed.toArray(new String[0]),
-                          CHUTKI_PERMS_CODE
-                      );
-                  }
+                  try {
+                      List<String> needed = new ArrayList<>();
+                      addIfMissing(needed, Manifest.permission.ACCESS_FINE_LOCATION);
+                      addIfMissing(needed, Manifest.permission.ACCESS_COARSE_LOCATION);
+                      addIfMissing(needed, Manifest.permission.RECORD_AUDIO);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                          addIfMissing(needed, Manifest.permission.POST_NOTIFICATIONS);
+                      }
+                      if (!needed.isEmpty()) {
+                          ActivityCompat.requestPermissions(
+                              this,
+                              needed.toArray(new String[0]),
+                              CHUTKI_PERMS_CODE
+                          );
+                      }
+                  } catch (Exception ignored) {}
               }
 
               private void addIfMissing(List<String> list, String perm) {
