@@ -22,6 +22,10 @@ interface CheckoutModalProps {
   adminUpiId: string;
   usedUtrs?: string[];
   baseDeliveryCharge: number;
+  deliveryBaseDistanceKm?: number;
+  deliveryChargePerKm?: number;
+  customerLat?: number | null;
+  customerLng?: number | null;
   freeDeliveryMinOrder: number;
   handlingFee: number;
   isPlusActive: boolean;
@@ -62,6 +66,8 @@ interface CheckoutModalProps {
     appliedCouponCode: string;
     riderTip: number;
     deliverySlot: string;
+    deliveryDistanceKm?: number | null;
+    deliveryCharge?: number;
     cardHolderName?: string;
     cardNumber?: string;
     cardExpiry?: string;
@@ -78,6 +84,10 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   adminUpiId,
   usedUtrs,
   baseDeliveryCharge,
+  deliveryBaseDistanceKm = 2,
+  deliveryChargePerKm = 8,
+  customerLat = null,
+  customerLng = null,
   freeDeliveryMinOrder,
   handlingFee,
   isPlusActive,
@@ -217,10 +227,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       ? riderTipOptions.filter((n) => Number.isFinite(n) && n > 0)
       : [10, 20, 30, 50];
   const effectiveTip = allowRiderTip ? riderTip : 0;
+
   const summary = calculateCheckoutSummary({
     items: cartItems,
     stores,
     baseDeliveryCharge,
+    deliveryBaseDistanceKm,
+    deliveryChargePerKm,
+    customerLat,
+    customerLng,
     freeDeliveryMinOrder,
     handlingFee,
     appliedDiscount,
@@ -255,7 +270,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         return;
       }
     } catch {
-      // Fallback toast below when clipboard access is blocked
+      // Fallback
     }
     if (showFallbackToast) {
       showToast('Share link ready—copy from the box above!', 'info');
@@ -281,7 +296,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         url: shareUrl,
       });
     } catch {
-      // User dismissed share sheet
+      // Dismissed
     }
   };
 
@@ -502,7 +517,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               ) : summary.deliveryCharge === 0 ? (
                 <>
                   🎉 <strong>FREE Delivery Unlocked!</strong> (Saved ₹
-                  {baseDeliveryCharge})
+                  {summary.deliveryDistanceKm !== null ? summary.deliveryCharge || baseDeliveryCharge : baseDeliveryCharge})
                 </>
               ) : (
                 <>
@@ -1227,7 +1242,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <td id="checkout-subtotal-amount">₹{summary.subtotal.toFixed(0)}</td>
               </tr>
               <tr>
-                <th scope="row">Delivery Charge</th>
+                <th scope="row">
+                  Delivery Charge
+                  {summary.deliveryDistanceKm !== null && summary.deliveryCharge > 0 && (
+                    <span style={{ fontSize: '0.7rem', color: '#64748b', marginLeft: '4px' }}>
+                      ({summary.deliveryDistanceKm.toFixed(1)} km)
+                    </span>
+                  )}
+                </th>
                 <td id="checkout-delivery-charge">
                   {summary.deliveryCharge === 0 ? (
                     <span className="summary-free-tag">
@@ -1345,6 +1367,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               appliedCouponCode,
               riderTip: effectiveTip,
               deliverySlot: allowScheduledDelivery ? deliverySlot : 'EXPRESS_15',
+              deliveryDistanceKm: summary.deliveryDistanceKm,
+              deliveryCharge: summary.deliveryCharge,
               cardHolderName,
               cardNumber,
               cardExpiry,
