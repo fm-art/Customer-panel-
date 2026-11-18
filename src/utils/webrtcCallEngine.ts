@@ -38,45 +38,57 @@ export function startCallRingtone(mode: 'INCOMING' | 'OUTGOING'): RingtoneContro
         void audioCtx.resume().catch(() => {});
       }
       const now = audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
+
       if (mode === 'INCOMING') {
-        osc.frequency.setValueAtTime(523.25, now); // C5
-        osc.frequency.setValueAtTime(659.25, now + 0.18); // E5
-        gain.gain.setValueAtTime(0.16, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(now);
-        osc.stop(now + 0.46);
+        // High-fidelity melodic polyphonic incoming call chime (C5 + E5 + G5 chord progression)
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((freq, idx) => {
+          if (!audioCtx) return;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+          gain.gain.setValueAtTime(0.18, now + idx * 0.12);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.38);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + idx * 0.12);
+          osc.stop(now + idx * 0.12 + 0.39);
+        });
       } else {
-        osc.frequency.setValueAtTime(440, now); // Standard ringback A4
-        gain.gain.setValueAtTime(0.08, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(now);
-        osc.stop(now + 0.66);
+        // Standard cellular dual-frequency ringback tone (440Hz + 480Hz)
+        [440, 480].forEach((freq) => {
+          if (!audioCtx) return;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.09, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.86);
+        });
       }
     } catch {
-      // Ignore Web Audio autoplay blocks
+      // Ignore audio autoplay restrictions
     }
   };
 
   playBurst();
-  intervalId = window.setInterval(playBurst, mode === 'INCOMING' ? 1400 : 2400);
+  intervalId = window.setInterval(playBurst, mode === 'INCOMING' ? 1600 : 2600);
 
   if (mode === 'INCOMING' && typeof navigator !== 'undefined' && navigator.vibrate) {
     try {
-      navigator.vibrate([300, 200, 300]);
+      navigator.vibrate([400, 250, 400, 250]);
     } catch {
-      // Ignore vibration errors
+      // Ignore vibration error
     }
     vibrateIntervalId = window.setInterval(() => {
       if (stopped) return;
       try {
-        navigator.vibrate([300, 200, 300]);
+        navigator.vibrate([400, 250, 400, 250]);
       } catch {
         // Ignore
       }
@@ -151,7 +163,6 @@ async function acquireHardwareMicStream(): Promise<MediaStream> {
     if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
       throw firstErr;
     }
-    // Retry with basic audio: true if advanced constraints failed on device
     return await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: false,
@@ -172,7 +183,7 @@ function createSilentFallbackStream(): {
     const dest = ctx.createMediaStreamDestination();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    gain.gain.value = 0.00001; // Near-zero silent carrier so WebRTC RTP audio transceiver stays active
+    gain.gain.value = 0.00001;
     osc.connect(gain);
     gain.connect(dest);
     osc.start();
@@ -217,7 +228,6 @@ export async function startWebRtcVoiceSession(params: {
   let connectedNotified = false;
   let isCurrentlyMuted = false;
 
-  // 1. Request audio-only microphone permission (with non-fatal WebRTC fallback so signaling never dies)
   try {
     localStream = await acquireHardwareMicStream();
     usingFallbackMic = false;
@@ -235,7 +245,7 @@ export async function startWebRtcVoiceSession(params: {
     callbacks.onMicPermissionError(
       isPermDenied,
       isPermDenied
-        ? 'Microphone access blocked by browser/webview. Call is still connecting (you can hear the Rider) — tap "Enable Mic" below or allow Microphone in browser settings.'
+        ? 'Microphone permission denied in Android app settings. Please enable Microphone in App Info.'
         : 'Microphone unavailable on this device. Connecting call in listen-ready mode — tap "Enable Mic" to retry.'
     );
   }
@@ -256,7 +266,6 @@ export async function startWebRtcVoiceSession(params: {
     return null;
   }
 
-  // 2. Setup remote audio playback element + Web Audio gain node for Speaker mode
   remoteAudioEl = document.createElement('audio');
   remoteAudioEl.autoplay = true;
   remoteAudioEl.setAttribute('playsinline', 'true');
@@ -286,7 +295,7 @@ export async function startWebRtcVoiceSession(params: {
       const transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
       audioSender = transceiver.sender;
     } catch {
-      // Ignore if addTransceiver not supported
+      // Ignore
     }
   }
 
@@ -377,7 +386,7 @@ export async function startWebRtcVoiceSession(params: {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(cand));
         } catch {
-          // Ignore malformed candidate
+          // Ignore
         }
       }
     }
@@ -402,7 +411,6 @@ export async function startWebRtcVoiceSession(params: {
     }
   };
 
-  // Listen to remote ICE candidates on primary orderId (and tripId fallback)
   unsubscribers.push(
     onChildAdded(ref(db, remoteCandidatesPath), (snap) => {
       handleIncomingCandidate(
@@ -426,7 +434,6 @@ export async function startWebRtcVoiceSession(params: {
     );
   }
 
-  // 3. Negotiate Offer / Answer
   if (role === 'CALLER') {
     const offer = await pc.createOffer({
       offerToReceiveAudio: true,
@@ -453,7 +460,7 @@ export async function startWebRtcVoiceSession(params: {
         remoteDescriptionSet = true;
         await flushQueuedCandidates();
       } catch {
-        // Ignore duplicate setRemoteDescription
+        // Ignore duplicate
       }
     };
 
@@ -470,7 +477,6 @@ export async function startWebRtcVoiceSession(params: {
       );
     }
   } else {
-    // role === 'RECEIVER' (Customer answering Rider's call)
     callbacks.onStatusChange('CONNECTING');
     const handleRemoteOffer = async (offer: WebRtcSdpPayload | null) => {
       if (cleanedUp || !pc || remoteDescriptionSet) return;
@@ -555,8 +561,8 @@ export async function startWebRtcVoiceSession(params: {
         callbacks.onMicPermissionError(
           isPermDenied,
           isPermDenied
-            ? 'Microphone still blocked. Tap the lock icon in your browser address bar -> Permissions -> Allow Microphone.'
-            : 'Could not capture microphone audio. Please check your audio device.'
+            ? 'Microphone permission denied in Android app settings. Please enable Microphone in App Info.'
+            : 'Could not capture microphone audio. Please check device.'
         );
         return !usingFallbackMic;
       }
@@ -587,7 +593,7 @@ export async function startWebRtcVoiceSession(params: {
             }
           }
         } catch {
-          // Fallback to Web Audio gain boost below
+          // Ignore
         }
       }
       try {
@@ -612,7 +618,7 @@ export async function startWebRtcVoiceSession(params: {
           speakerGainNode.gain.value = 1.0;
         }
       } catch {
-        // Ignore Web Audio routing errors
+        // Ignore
       }
       return speakerOn;
     },
