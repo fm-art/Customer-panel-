@@ -35,7 +35,7 @@ jobs:
           fi
           npm run build
 
-      - name: Setup Capacitor Android, App Logo, Notification Icon & Permissions
+      - name: Setup Capacitor Android, Call & Push Permissions, App & Notification Icons
         run: |
           if [ ! -d android ]; then
             npx cap add android
@@ -106,35 +106,14 @@ jobs:
           (anydpi_dir / "ic_launcher.xml").write_text(adaptive_xml, encoding="utf-8")
           (anydpi_dir / "ic_launcher_round.xml").write_text(adaptive_xml, encoding="utf-8")
 
-          # 2. Generate Monochrome White Notification Small Icon (ic_stat_chutki.png)
-          custom_notif = Path("public/notification-icon.png")
-          if custom_notif.exists():
-              src = Image.open(custom_notif).convert("RGBA").resize((192, 192), Image.Resampling.LANCZOS)
-              alpha_extrema = src.getchannel("A").getextrema()
-              notif_base = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
-              px_src = src.load()
-              px_out = notif_base.load()
-              bg_r, bg_g, bg_b, _ = px_src[0, 0]
-              has_transparency = alpha_extrema[0] < 240
-              for y in range(192):
-                  for x in range(192):
-                      r, g, b, a = px_src[x, y]
-                      if has_transparency:
-                          if a > 20:
-                              px_out[x, y] = (255, 255, 255, a)
-                      else:
-                          dist = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
-                          if dist > 45:
-                              px_out[x, y] = (255, 255, 255, 255)
-          else:
-              # Clean white shopping-cart + flash notification silhouette
-              notif_base = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
-              d = ImageDraw.Draw(notif_base)
-              white = (255, 255, 255, 255)
-              d.line([(24, 48), (52, 48), (74, 126), (148, 126), (166, 68), (58, 68)], fill=white, width=14, joint="curve")
-              d.ellipse((68, 138, 94, 164), fill=white)
-              d.ellipse((126, 138, 152, 164), fill=white)
-              d.polygon([(126, 20), (108, 48), (124, 48), (114, 72), (144, 40), (126, 40)], fill=white)
+          # 2. Generate White Notification Icon
+          notif_base = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
+          d = ImageDraw.Draw(notif_base)
+          white = (255, 255, 255, 255)
+          d.line([(24, 48), (52, 48), (74, 126), (148, 126), (166, 68), (58, 68)], fill=white, width=14, joint="curve")
+          d.ellipse((68, 138, 94, 164), fill=white)
+          d.ellipse((126, 138, 152, 164), fill=white)
+          d.polygon([(126, 20), (108, 48), (124, 48), (114, 72), (144, 40), (126, 40)], fill=white)
 
           notif_sizes = {
               "drawable": 96,
@@ -155,6 +134,7 @@ jobs:
           manifest_path = Path("android/app/src/main/AndroidManifest.xml")
           xml = manifest_path.read_text(encoding="utf-8")
           perms = [
+              '<uses-permission android:name="android.permission.INTERNET" />',
               '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
               '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
               '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
@@ -163,6 +143,10 @@ jobs:
               '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
               '<uses-permission android:name="android.permission.VIBRATE" />',
               '<uses-permission android:name="android.permission.WAKE_LOCK" />',
+              '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+              '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />',
+              '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />',
+              '<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />',
               '<uses-feature android:name="android.hardware.location.gps" android:required="false" />',
               '<uses-feature android:name="android.hardware.microphone" android:required="false" />',
           ]
@@ -185,7 +169,12 @@ jobs:
           package com.gossaigaon.bazar;
 
           import android.Manifest;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
           import android.content.pm.PackageManager;
+          import android.media.AudioAttributes;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
           import android.os.Build;
           import android.os.Bundle;
           import androidx.core.app.ActivityCompat;
@@ -195,12 +184,47 @@ jobs:
           import java.util.List;
 
           public class MainActivity extends BridgeActivity {
-              private static final int CHUTKI_PERMISSIONS_REQUEST_CODE = 9001;
+              private static final int CHUTKI_PERMS_CODE = 9001;
 
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+                  setupCallAndNotificationChannels();
                   requestAllAppPermissions();
+              }
+
+              private void setupCallAndNotificationChannels() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationManager nm = getSystemService(NotificationManager.class);
+                      if (nm != null) {
+                          NotificationChannel callChan = new NotificationChannel(
+                              "chutki_calls",
+                              "Incoming Rider Voice Calls",
+                              NotificationManager.IMPORTANCE_HIGH
+                          );
+                          callChan.setDescription("Rider voice call alerts and doorstep arrival");
+                          callChan.enableVibration(true);
+                          callChan.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500});
+                          Uri callSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                          if (callSound != null) {
+                              AudioAttributes attr = new AudioAttributes.Builder()
+                                  .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                  .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                                  .build();
+                              callChan.setSound(callSound, attr);
+                          }
+                          nm.createNotificationChannel(callChan);
+
+                          NotificationChannel alertChan = new NotificationChannel(
+                              "chutki_alerts",
+                              "Order & Delivery Alerts",
+                              NotificationManager.IMPORTANCE_HIGH
+                          );
+                          alertChan.setDescription("Live grocery order tracking and PIN alerts");
+                          alertChan.enableVibration(true);
+                          nm.createNotificationChannel(alertChan);
+                      }
+                  }
               }
 
               private void requestAllAppPermissions() {
@@ -215,7 +239,7 @@ jobs:
                       ActivityCompat.requestPermissions(
                           this,
                           needed.toArray(new String[0]),
-                          CHUTKI_PERMISSIONS_REQUEST_CODE
+                          CHUTKI_PERMS_CODE
                       );
                   }
               }
