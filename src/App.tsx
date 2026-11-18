@@ -31,6 +31,8 @@ import type {
 import {
   DEFAULT_CATEGORIES,
   DEFAULT_NEARBY_RADIUS_KM,
+  calculateDeliveryChargeByDistance,
+  calculateDistanceKm,
   calculateOrderCashback,
   darkenHexColor,
   decodeCartFromShareParam,
@@ -420,7 +422,7 @@ export default function App() {
     try {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ items: cartItems }));
     } catch {
-      // Ignore quota errors
+      // Ignore
     }
   }, [cartItems]);
 
@@ -433,13 +435,13 @@ export default function App() {
       try {
         localStorage.setItem(USED_UTRS_STORAGE_KEY, JSON.stringify(next));
       } catch {
-        // Ignore storage errors
+        // Ignore
       }
       return next;
     });
   }, []);
 
-  // Reconcile persisted/client cart prices against authoritative live catalog
+  // Reconcile client cart prices with live catalog
   useEffect(() => {
     if (
       cartItemsRef.current.length === 0 ||
@@ -459,7 +461,7 @@ export default function App() {
     }
   }, [allMenus, showToast, stores]);
 
-  // Hydrate shared cart from ?cart=... URL parameter once catalog & session are ready
+  // Hydrate shared cart from URL parameter
   useEffect(() => {
     const token = pendingSharedCartTokenRef.current;
     if (!token || !isLoggedIn) return;
@@ -477,7 +479,7 @@ export default function App() {
         window.history.replaceState(window.history.state, '', cleanedUrl);
       }
     } catch {
-      // Ignore URL cleanup errors
+      // Ignore
     }
 
     const decoded = decodeCartFromShareParam(token);
@@ -519,6 +521,11 @@ export default function App() {
   const appBrandName = settings.appBrandName || 'Chutki';
   const baseDeliveryCharge =
     settings.deliveryCharge !== undefined ? Number(settings.deliveryCharge) : 25;
+  const deliveryBaseDistanceKm =
+    settings.deliveryBaseDistanceKm !== undefined ? Number(settings.deliveryBaseDistanceKm) : 2;
+  const deliveryChargePerKm =
+    settings.deliveryChargePerKm !== undefined ? Number(settings.deliveryChargePerKm) : 8;
+
   const freeDeliveryMinOrder =
     settings.freeDeliveryAbove !== undefined
       ? Number(settings.freeDeliveryAbove)
@@ -721,14 +728,13 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [verifyResendCooldownSec]);
 
-  // Refs for diffing push notifications cleanly without duplicate triggers
   const orderSnapshotRef = useRef<Record<string, OrderSnapshotState> | null>(null);
   const ordersHydratedRef = useRef<boolean>(isAutostartDemo);
   const prevUidForSnapshotRef = useRef<string | null>(null);
   const walletKeysRef = useRef<Set<string> | null>(null);
   const lastAnnouncementRef = useRef<string | null>(null);
 
-  // Firebase RTDB real-time listeners (with clean unsubscribe!)
+  // Firebase RTDB real-time listeners
   useEffect(() => {
     if (!currentUser || needsEmailVerification) return;
     const uid = currentUser.uid;
@@ -895,7 +901,6 @@ export default function App() {
     activeTab,
   };
 
-  // Hardware back button / popstate handling (mount-only listener so history entries stay intact)
   useEffect(() => {
     if (!window.history.state) {
       window.history.replaceState({ screen: 'home' }, '');
@@ -964,7 +969,6 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [showToast, switchNav]);
 
-  // Memoized products & stores lists (prioritizing <= nearbyRadiusKm stores & search hits first)
   const filteredProducts = useMemo<MenuItem[]>(() => {
     const query = searchQuery.toLowerCase().trim();
     const list: MenuItem[] = [];
@@ -1062,7 +1066,6 @@ export default function App() {
     [cachedOrders]
   );
 
-  // Unified real-time order-status push watcher & timeline timestamp recorder
   useEffect(() => {
     if (!activeUid) {
       orderSnapshotRef.current = null;
@@ -1107,7 +1110,7 @@ export default function App() {
         try {
           localStorage.setItem(TIMELINE_TS_STORAGE_KEY, JSON.stringify(next));
         } catch {
-          // ignore storage quota
+          // ignore
         }
       }
       return changed ? next : prev;
@@ -1133,7 +1136,6 @@ export default function App() {
     orderSnapshotRef.current = buildOrderSnapshotMap(groupedOrders);
   }, [activeUid, groupedOrders, pushNotification]);
 
-  // Cart actions
   const getItemQuantityInCart = useCallback(
     (itemId: string, storeId: string) => {
       const found = cartItems.find(
@@ -1468,7 +1470,6 @@ export default function App() {
     switchNav,
   ]);
 
-  // Voice search
   const startVoiceSearch = () => {
     const win = window as unknown as {
       SpeechRecognition?: new () => {
@@ -1503,7 +1504,6 @@ export default function App() {
     rec.start();
   };
 
-  // Real-time GPS listener for continuous 5km store/product sorting on Home & Search
   const applyRealtimeGpsCoords = useCallback(
     (rawLat: number, rawLng: number) => {
       if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
@@ -1563,9 +1563,7 @@ export default function App() {
             }
           };
         })
-        .catch(() => {
-          // Ignore environments without Permissions API support
-        });
+        .catch(() => {});
     }
 
     return () => {
@@ -1577,7 +1575,6 @@ export default function App() {
     };
   }, [applyRealtimeGpsCoords, isLoggedIn, prioritizeNearbyStores]);
 
-  // GPS handlers
   const handleHomeGpsDetect = () => {
     if (!navigator.geolocation) {
       showToast('GPS unavailable on this device.', 'danger');
@@ -1736,7 +1733,6 @@ export default function App() {
     );
   };
 
-  // Profile Save
   const handleSaveProfile = (nameRaw: string, phoneRaw: string, addressRaw: string) => {
     const name = sanitizeInputBounded(nameRaw, 80);
     const phone = phoneRaw.replace(/\D/g, '').slice(0, 10);
@@ -1778,7 +1774,6 @@ export default function App() {
     }
   };
 
-  // Place Order
   const handlePlaceOrder = async (payload: {
     address: string;
     phone: string;
@@ -1789,6 +1784,8 @@ export default function App() {
     appliedCouponCode: string;
     riderTip: number;
     deliverySlot: string;
+    deliveryDistanceKm?: number | null;
+    deliveryCharge?: number;
     cardHolderName?: string;
     cardNumber?: string;
     cardExpiry?: string;
@@ -1807,7 +1804,6 @@ export default function App() {
       return;
     }
 
-    // Reconcile client cart against live catalog prices to block price tampering
     const {
       safeCart: verifiedCartItems,
       tamperedCount,
@@ -1930,7 +1926,6 @@ export default function App() {
       cardLast4 = cardCheck.last4 || '';
     }
 
-    // Group & calculate net payable using catalog-verified prices
     const storeBatches: Record<
       string,
       { storeName: string; items: CartItem[]; subtotal: number }
@@ -1961,9 +1956,31 @@ export default function App() {
       }
     });
 
+    // Distance calculation for delivery fee
+    let maxCartDistKm: number | null = null;
+    if (activeCustomerLat && activeCustomerLng) {
+      Object.keys(storeBatches).forEach((sId) => {
+        const st = stores[sId];
+        if (st && typeof st.lat === 'number' && typeof st.lng === 'number') {
+          const d = calculateDistanceKm(activeCustomerLat, activeCustomerLng, st.lat, st.lng);
+          if (d !== null && (maxCartDistKm === null || d > maxCartDistKm)) {
+            maxCartDistKm = d;
+          }
+        }
+      });
+    }
+
+    const distChargeResult = calculateDeliveryChargeByDistance({
+      distanceKm: maxCartDistKm,
+      baseDeliveryCharge,
+      deliveryBaseDistanceKm: settings.deliveryBaseDistanceKm ?? 2,
+      deliveryChargePerKm: settings.deliveryChargePerKm ?? 8,
+    });
+
     const isFreeDelivery =
       (allowChutkiPlus && isPlusActive) || totalItemsSubtotal >= freeDeliveryMinOrder;
-    const delCharge = isFreeDelivery ? 0 : baseDeliveryCharge;
+    const delCharge = isFreeDelivery ? 0 : distChargeResult.charge;
+
     const activeHandling = handlingFee > 0 ? handlingFee : 0;
     const cleanTip = allowRiderTip
       ? Math.max(0, Math.min(500, Math.round(Number(payload.riderTip || 0))))
@@ -2087,7 +2104,7 @@ export default function App() {
           const batchDeliveryCharge = isFreeDelivery
             ? 0
             : isFirst
-              ? baseDeliveryCharge
+              ? delCharge
               : 0;
           const batchHandlingFee =
             handlingFee > 0 && isFirst ? handlingFee : 0;
@@ -2125,6 +2142,7 @@ export default function App() {
             items: batch.items,
             subtotalAmount: Number(batch.subtotal.toFixed(2)),
             deliveryCharge: Number(batchDeliveryCharge.toFixed(2)),
+            deliveryDistanceKm: distChargeResult.distanceKm ? Number(distChargeResult.distanceKm.toFixed(2)) : undefined,
             handlingFee: Number(batchHandlingFee.toFixed(2)),
             riderTip: batchTip,
             deliverySlot,
@@ -2164,7 +2182,6 @@ export default function App() {
           };
         });
 
-        // Update Demo stock counts
         setAllMenus((prev) => {
           const next = { ...prev };
           verifiedCartItems.forEach((item) => {
@@ -2322,7 +2339,7 @@ export default function App() {
         const batchDeliveryCharge = isFreeDelivery
           ? 0
           : isFirst
-            ? baseDeliveryCharge
+            ? delCharge
             : 0;
         const batchHandlingFee =
           handlingFee > 0 && isFirst ? handlingFee : 0;
@@ -2360,6 +2377,7 @@ export default function App() {
           items: batch.items,
           subtotalAmount: Number(batch.subtotal.toFixed(2)),
           deliveryCharge: Number(batchDeliveryCharge.toFixed(2)),
+          deliveryDistanceKm: distChargeResult.distanceKm ? Number(distChargeResult.distanceKm.toFixed(2)) : undefined,
           handlingFee: Number(batchHandlingFee.toFixed(2)),
           riderTip: batchTip,
           deliverySlot,
@@ -2411,7 +2429,6 @@ export default function App() {
         }).catch(() => undefined);
       }
 
-      // Decrement product stockCount in RTDB if configured
       verifiedCartItems.forEach((item) => {
         const menuProd = allMenus[item.storeId]?.[item.itemId];
         if (menuProd && typeof menuProd.stockCount === 'number') {
@@ -2425,7 +2442,6 @@ export default function App() {
         }
       });
 
-      // Credit prepaid wallet cashback if earned
       if (cashbackEarned > 0) {
         await runTransaction(
           ref(db, `customers/${activeUid}/walletBalance`),
@@ -2488,7 +2504,6 @@ export default function App() {
     }
   };
 
-  // Wallet Deposit / Withdraw
   const handleWalletDepositSubmit = async (
     amt: number,
     utrRaw: string,
@@ -2661,7 +2676,6 @@ export default function App() {
     }
   };
 
-  // Ratings & Reviews
   const handleSubmitRiderRating = async (
     group: ReturnType<typeof groupCustomerOrders>[number],
     stars: number,
@@ -3196,7 +3210,6 @@ export default function App() {
     }
   };
 
-  // Feedback & Cancel
   const handleFeedbackSubmit = async (
     subject: string,
     rating: number,
@@ -3466,7 +3479,6 @@ export default function App() {
       if (!activeUid || !candidate || typeof candidate !== 'object') return;
       const current = activeCallRef.current;
 
-      // 1. If this update belongs to the currently active call, sync remote status transitions
       if (current && candidate.callId === current.callId) {
         const nextStatus = candidate.status as InAppCallStatus | undefined;
         if (!nextStatus) return;
@@ -3499,7 +3511,6 @@ export default function App() {
 
         setActiveCall((prev) => {
           if (!prev || prev.callId !== current.callId) return prev;
-          // Do not overwrite local CONNECTED state with an older RINGING/CONNECTING snapshot
           if (
             prev.status === 'CONNECTED' &&
             (nextStatus === 'RINGING' || nextStatus === 'CALLING' || nextStatus === 'CONNECTING')
@@ -3520,7 +3531,6 @@ export default function App() {
         return;
       }
 
-      // 2. Otherwise evaluate whether it is a valid incoming Rider -> Customer call
       if (!allowRiderVoiceCall) return;
       const decision = evaluateIncomingRiderCall({
         candidate,
@@ -3549,7 +3559,6 @@ export default function App() {
         return;
       }
 
-      // decision.action === 'RING': Show full-screen incoming call UI + ringtone + vibration
       stopActiveCallMedia();
       setIsCallMuted(false);
       setIsCallSpeakerOn(false);
@@ -3581,7 +3590,6 @@ export default function App() {
     ]
   );
 
-  // Centralized App-Wide Incoming Call & Active Order Call Listener
   useEffect(() => {
     if (!activeUid || !isLoggedIn) return undefined;
 
@@ -3656,7 +3664,6 @@ export default function App() {
     isLoggedIn,
   ]);
 
-  // 60-second unanswered call signaling timeout guard
   useEffect(() => {
     if (
       !activeCall ||
@@ -3697,7 +3704,6 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [activeCall, isDemoMode, showToast, stopActiveCallMedia]);
 
-  // Real-Time Trip Chat listener for active rider-assigned orders
   useEffect(() => {
     if (!activeUid || !isLoggedIn || isDemoMode) return undefined;
     const eligibleGroups = groupedOrders.filter((g) =>
@@ -3720,7 +3726,6 @@ export default function App() {
             [ordId]: list,
           }));
 
-          // If Customer currently has this chat open, mark unread RIDER messages as READ
           if (activeChatGroupKey === grp.groupKey && raw) {
             const readUpdates: Record<string, unknown> = {};
             list.forEach((m) => {
@@ -3878,14 +3883,12 @@ export default function App() {
     const current = activeCallRef.current;
     if (!current || !activeUid) return;
 
-    // 1. Stop incoming ringtone & vibration immediately
     if (ringtoneRef.current) {
       ringtoneRef.current.stop();
       ringtoneRef.current = null;
     }
     setCallMicError(null);
 
-    // 2. Transition to CONNECTING first — CONNECTED is only written once WebRTC peer connects!
     setActiveCall((prev) =>
       prev && prev.callId === current.callId
         ? {
@@ -4082,7 +4085,6 @@ export default function App() {
       setActiveChatGroupKey(group.groupKey);
       window.history.pushState({ modal: 'riderChat' }, '');
 
-      // Mark unread Rider messages as READ
       if (isDemoMode) {
         setTripChatMessagesByOrder((prev) => {
           const existing = prev[ordId] || [];
@@ -4772,6 +4774,10 @@ export default function App() {
           adminUpiId={adminUpiId}
           usedUtrs={Array.from(collectKnownUtrs(cachedOrders, localUsedUtrs))}
           baseDeliveryCharge={baseDeliveryCharge}
+          deliveryBaseDistanceKm={deliveryBaseDistanceKm}
+          deliveryChargePerKm={deliveryChargePerKm}
+          customerLat={activeCustomerLat}
+          customerLng={activeCustomerLng}
           freeDeliveryMinOrder={freeDeliveryMinOrder}
           handlingFee={handlingFee}
           isPlusActive={isPlusActive}
