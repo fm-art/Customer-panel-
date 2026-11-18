@@ -143,6 +143,7 @@ interface ToastItem {
 const CART_STORAGE_KEY = 'gb_ultra_cart';
 const USED_UTRS_STORAGE_KEY = 'gb_used_utrs';
 const TIMELINE_TS_STORAGE_KEY = 'gb_order_timeline_ts_v1';
+const ACTIVE_UID_STORAGE_KEY = 'chutki_active_uid';
 
 function loadSavedTimelineTimestamps(): Record<string, Record<string, number>> {
   try {
@@ -213,6 +214,19 @@ export default function App() {
     isDemoMode,
     user: activeUserSnapshot,
   });
+
+  // Keep native background service in sync with current user UID
+  useEffect(() => {
+    if (activeUid && !isDemoMode) {
+      try {
+        localStorage.setItem(ACTIVE_UID_STORAGE_KEY, activeUid);
+      } catch {}
+    } else if (!activeUid) {
+      try {
+        localStorage.removeItem(ACTIVE_UID_STORAGE_KEY);
+      } catch {}
+    }
+  }, [activeUid, isDemoMode]);
 
   // Core Firebase states
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(
@@ -331,7 +345,7 @@ export default function App() {
     };
   }, []);
 
-  // In ?autostart=1 preview mode, stream live simulated GPS ticks for assigned demo riders
+  // In ?autostart=1 preview mode, stream live simulated GPS ticks
   useEffect(() => {
     if (!isDemoMode) return;
     let tick = 1;
@@ -400,7 +414,6 @@ export default function App() {
     [activeTab]
   );
 
-  // Push Notifications hook
   const {
     permission: pushPermission,
     notifications,
@@ -417,13 +430,10 @@ export default function App() {
     dismissPrompt,
   } = usePushNotifications(activeUid, isDemoMode, (tab) => switchNav(tab));
 
-  // Persist cart
   useEffect(() => {
     try {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ items: cartItems }));
-    } catch {
-      // Ignore
-    }
+    } catch {}
   }, [cartItems]);
 
   const recordUsedUtr = useCallback((utr: string) => {
@@ -434,14 +444,11 @@ export default function App() {
       const next = [...prev, clean].slice(-50);
       try {
         localStorage.setItem(USED_UTRS_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // Ignore
-      }
+      } catch {}
       return next;
     });
   }, []);
 
-  // Reconcile client cart prices with live catalog
   useEffect(() => {
     if (
       cartItemsRef.current.length === 0 ||
@@ -461,7 +468,6 @@ export default function App() {
     }
   }, [allMenus, showToast, stores]);
 
-  // Hydrate shared cart from URL parameter
   useEffect(() => {
     const token = pendingSharedCartTokenRef.current;
     if (!token || !isLoggedIn) return;
@@ -478,9 +484,7 @@ export default function App() {
         const cleanedUrl = `${url.pathname}${nextQuery ? `?${nextQuery}` : ''}${url.hash}`;
         window.history.replaceState(window.history.state, '', cleanedUrl);
       }
-    } catch {
-      // Ignore
-    }
+    } catch {}
 
     const decoded = decodeCartFromShareParam(token);
     if (decoded.length === 0) {
@@ -516,7 +520,6 @@ export default function App() {
     }
   }, [allMenus, isLoggedIn, showToast, stores]);
 
-  // Derived CMS configuration
   const adminUpiId = settings.upiId || 'gossaigaonbazar@apl';
   const appBrandName = settings.appBrandName || 'Chutki';
   const baseDeliveryCharge =
@@ -674,7 +677,6 @@ export default function App() {
     }
   }, [categories, currentCategoryFilter]);
 
-  // Apply CMS Theme CSS variables
   useEffect(() => {
     const root = document.documentElement;
     if (settings.themePrimaryColor) {
@@ -708,7 +710,6 @@ export default function App() {
     }
   }, [settings]);
 
-  // Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -734,7 +735,6 @@ export default function App() {
   const walletKeysRef = useRef<Set<string> | null>(null);
   const lastAnnouncementRef = useRef<string | null>(null);
 
-  // Firebase RTDB real-time listeners
   useEffect(() => {
     if (!currentUser || needsEmailVerification) return;
     const uid = currentUser.uid;
@@ -1109,9 +1109,7 @@ export default function App() {
       if (changed) {
         try {
           localStorage.setItem(TIMELINE_TS_STORAGE_KEY, JSON.stringify(next));
-        } catch {
-          // ignore
-        }
+        } catch {}
       }
       return changed ? next : prev;
     });
@@ -3350,9 +3348,8 @@ export default function App() {
     setCartItems([]);
     try {
       localStorage.removeItem(CART_STORAGE_KEY);
-    } catch {
-      // Ignore
-    }
+      localStorage.removeItem(ACTIVE_UID_STORAGE_KEY);
+    } catch {}
     if (Capacitor.isNativePlatform()) {
       void FirebaseAuthentication.signOut().catch(() => {});
     }
