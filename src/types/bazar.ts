@@ -108,6 +108,7 @@ export interface OrderRecord {
   items: CartItem[] | Record<string, CartItem>;
   subtotalAmount?: number;
   deliveryCharge?: number;
+  deliveryDistanceKm?: number;
   handlingFee?: number;
   riderTip?: number;
   deliverySlot?: string;
@@ -221,6 +222,8 @@ export interface AdminSettings {
   searchPlaceholder?: string;
   upiId?: string;
   deliveryCharge?: number;
+  deliveryBaseDistanceKm?: number;
+  deliveryChargePerKm?: number;
   freeDeliveryAbove?: number;
   handlingFee?: number;
   allowChutkiPlus?: boolean;
@@ -381,4 +384,3 @@ export interface TripChatMessage {
   timestamp: number;
   status: TripChatMessageStatus;
 }
-
