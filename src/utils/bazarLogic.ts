@@ -167,6 +167,35 @@ export function formatDistanceKmLabel(distanceKm: number | null | undefined): st
   return `${distanceKm.toFixed(1)} km`;
 }
 
+/**
+ * Calculates delivery charge based on distance from store to customer doorstep.
+ * - Under base distance (e.g. <= 2 km): base delivery charge
+ * - Above base distance: base delivery charge + extra per km
+ */
+export function calculateDeliveryChargeByDistance(params: {
+  distanceKm: number | null | undefined;
+  baseDeliveryCharge: number;
+  deliveryBaseDistanceKm?: number;
+  deliveryChargePerKm?: number;
+}): { charge: number; distanceKm: number | null; isDistanceCalculated: boolean } {
+  const baseCharge = Math.max(0, Number(params.baseDeliveryCharge || 25));
+  const baseKm = Math.max(0.5, Number(params.deliveryBaseDistanceKm ?? 2));
+  const perKm = Math.max(0, Number(params.deliveryChargePerKm ?? 8));
+  const dist = params.distanceKm;
+
+  if (typeof dist !== 'number' || !Number.isFinite(dist) || dist <= 0) {
+    return { charge: baseCharge, distanceKm: null, isDistanceCalculated: false };
+  }
+
+  if (dist <= baseKm) {
+    return { charge: baseCharge, distanceKm: dist, isDistanceCalculated: true };
+  }
+
+  const extraKm = Math.ceil(dist - baseKm);
+  const calculated = Math.round(baseCharge + extraKm * perKm);
+  return { charge: calculated, distanceKm: dist, isDistanceCalculated: true };
+}
+
 export function sortStoresByProximity(
   storesList: Array<[string, Store]>,
   customerLat: unknown,
@@ -204,7 +233,6 @@ export function sortStoresByProximity(
       const dist = getStoreDistanceKm(entry[1], customerLat, customerLng);
       const isOpen = entry[1].isOpen !== false;
       const within = isStoreWithinRadius(dist, safeRadius);
-      // Tier order ensures all stores within nearbyRadiusKm (5km) appear strictly first
       let tier = 5;
       if (within && isOpen) tier = 0;
       else if (within && !isOpen) tier = 1;
@@ -748,6 +776,7 @@ export function calculateOrderCashback(
 export interface CheckoutSummary {
   subtotal: number;
   deliveryCharge: number;
+  deliveryDistanceKm: number | null;
   handlingFee: number;
   riderTip: number;
   storeDiscount: number;
@@ -763,6 +792,10 @@ export function calculateCheckoutSummary(params: {
   items: CartItem[];
   stores: Record<string, Store>;
   baseDeliveryCharge: number;
+  deliveryBaseDistanceKm?: number;
+  deliveryChargePerKm?: number;
+  customerLat?: number | null;
+  customerLng?: number | null;
   freeDeliveryMinOrder: number;
   handlingFee: number;
   appliedDiscount: number;
@@ -776,10 +809,38 @@ export function calculateCheckoutSummary(params: {
   const subtotal = params.items.reduce((acc, curr) => acc + curr.price * curr.qty, 0);
   const storeDiscount = calculateStoreDiscounts(grouped, params.stores);
   const isPlusFreeDelivery = Boolean(params.isPlusActive);
+
+  // Calculate maximum distance among stores in the basket
+  let maxDistanceKm: number | null = null;
+  if (
+    typeof params.customerLat === 'number' &&
+    typeof params.customerLng === 'number' &&
+    Number.isFinite(params.customerLat) &&
+    Number.isFinite(params.customerLng)
+  ) {
+    grouped.forEach((g) => {
+      const st = params.stores[g.storeId];
+      if (st && typeof st.lat === 'number' && typeof st.lng === 'number') {
+        const d = calculateDistanceKm(params.customerLat, params.customerLng, st.lat, st.lng);
+        if (d !== null && (maxDistanceKm === null || d > maxDistanceKm)) {
+          maxDistanceKm = d;
+        }
+      }
+    });
+  }
+
+  const distanceResult = calculateDeliveryChargeByDistance({
+    distanceKm: maxDistanceKm,
+    baseDeliveryCharge: params.baseDeliveryCharge,
+    deliveryBaseDistanceKm: params.deliveryBaseDistanceKm,
+    deliveryChargePerKm: params.deliveryChargePerKm,
+  });
+
   const deliveryCharge =
     isPlusFreeDelivery || subtotal >= params.freeDeliveryMinOrder
       ? 0
-      : params.baseDeliveryCharge;
+      : distanceResult.charge;
+
   const activeHandling = params.handlingFee > 0 ? params.handlingFee : 0;
   const riderTip = Math.max(0, Math.round(Number(params.riderTip || 0)));
   const netPayable = Math.max(
@@ -813,6 +874,7 @@ export function calculateCheckoutSummary(params: {
   return {
     subtotal,
     deliveryCharge,
+    deliveryDistanceKm: distanceResult.distanceKm,
     handlingFee: activeHandling,
     riderTip,
     storeDiscount,
@@ -1712,4 +1774,3 @@ export function parseDeliveryQrPayload(raw: string): DeliveryQrPayload | null {
     return null;
   }
 }
-
